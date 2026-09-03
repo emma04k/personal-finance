@@ -47,6 +47,14 @@ describe("Content Security Policy", () => {
     expect(productionPolicy).not.toContain("'unsafe-eval'");
   });
 
+  it("only upgrades insecure requests in production", () => {
+    const developmentPolicy = buildContentSecurityPolicy("test-nonce", true);
+    const productionPolicy = buildContentSecurityPolicy("test-nonce", false);
+
+    expect(productionPolicy).toContain("upgrade-insecure-requests;");
+    expect(developmentPolicy).not.toContain("upgrade-insecure-requests;");
+  });
+
   it("sets matching request and response policies with a fresh nonce", () => {
     const firstResponse = proxy(new NextRequest("https://example.test/"));
     const secondResponse = proxy(new NextRequest("https://example.test/"));
