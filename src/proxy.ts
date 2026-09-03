@@ -12,6 +12,9 @@ export function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean
     ? `'self' 'nonce-${nonce}' 'unsafe-inline'`
     : `'self' 'nonce-${nonce}'`;
   const connectDevelopmentSources = isDevelopment ? " ws: wss:" : "";
+  const upgradeInsecureRequests = isDevelopment
+    ? ""
+    : "upgrade-insecure-requests;";
 
   return `
     default-src 'self';
@@ -27,7 +30,7 @@ export function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean
     manifest-src 'self';
     worker-src 'self' blob:;
     frame-src 'none';
-    upgrade-insecure-requests;
+    ${upgradeInsecureRequests}
   `
     .replace(/\s{2,}/g, " ")
     .trim();
