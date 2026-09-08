@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 const pagePath = resolve("src/app/budget/page.tsx");
 const actionPath = resolve("src/app/budget/actions.ts");
+const actionStatePath = resolve("src/app/budget/budget-period-action-state.ts");
+const formPath = resolve("src/app/budget/budget-period-form.tsx");
 const stylesheetPath = resolve("src/app/globals.css");
 
 function source(path: string) {
@@ -30,11 +32,11 @@ describe("budget planning page contract", () => {
     expect(page).toMatch(/listActiveCategoriesForOwner\(owner\.userId\)/);
     expect(page).toMatch(/<AppShell activeHref="\/budget">/);
     expect(page).toMatch(/aria-labelledby="budget-heading"/);
-    expect(page).toMatch(/createBudgetPeriodAction/);
+    expect(page).toMatch(/BudgetPeriodForm/);
   });
 
   it("offers explicit month currency and timezone inputs without client-provided owner ids", () => {
-    const page = source(pagePath);
+    const page = `${source(pagePath)}\n${source(formPath)}`;
 
     expect(page).toMatch(/htmlFor="period-month"/);
     expect(page).toMatch(/name="monthStart"/);
@@ -56,6 +58,42 @@ describe("budget planning page contract", () => {
     expect(action).toMatch(/openMonthlyBudgetPeriod/);
     expect(action).toMatch(/revalidatePath\("\/budget"\)/);
     expect(action).not.toMatch(/formData\.get\(["']userId["']\)|userId:\s*formData|getServerSession/);
+  });
+
+  it("uses a typed action-state contract for period creation feedback", () => {
+    expect(existsSync(actionPath)).toBe(true);
+    expect(existsSync(actionStatePath)).toBe(true);
+    const action = source(actionPath);
+    const actionState = source(actionStatePath);
+
+    expect(actionState).toMatch(/export type BudgetPeriodActionState/);
+    expect(actionState).toMatch(/export const initialBudgetPeriodActionState/);
+    expect(action).toMatch(/import type \{[\s\S]*BudgetPeriodActionState/);
+    expect(action).toMatch(/previousState:\s*BudgetPeriodActionState/);
+    expect(action).toMatch(/formData:\s*FormData/);
+    expect(action).toMatch(/status:\s*"error"/);
+    expect(action).toMatch(/fieldErrors/);
+    expect(action).toMatch(/status:\s*"success"/);
+    expect(action).toMatch(/message/);
+  });
+
+  it("renders accessible inline period-form feedback through useActionState", () => {
+    const page = source(pagePath);
+    expect(page).toMatch(/BudgetPeriodForm/);
+    expect(existsSync(formPath)).toBe(true);
+
+    const form = source(formPath);
+
+    expect(form).toMatch(/["']use client["']/);
+    expect(form).toMatch(/useActionState\(createBudgetPeriodAction, initialBudgetPeriodActionState\)/);
+    expect(form).toMatch(/<form className="budget-period-form" action=\{action\}/);
+    expect(form).toMatch(/aria-live="polite"/);
+    expect(form).toMatch(/role=\{state\.status === "error" \? "alert" : "status"\}/);
+    expect(form).toMatch(/aria-invalid=\{Boolean\(state\.fieldErrors\?\.monthStart\)\}/);
+    expect(form).toMatch(/aria-describedby="period-month-error"/);
+    expect(form).toMatch(/id="period-month-error"/);
+    expect(form).toMatch(/disabled=\{pending\}/);
+    expect(form).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
   });
 
   it("adds mobile-first budget CSS with safe widths, 16px form text, and 44px touch targets", () => {
