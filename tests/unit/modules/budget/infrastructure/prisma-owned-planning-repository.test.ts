@@ -9,7 +9,7 @@ describe("Prisma owner-scoped planning repository", () => {
   it("scopes period lookups by authenticated owner", async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const repository = new PrismaOwnedPlanningRepository({
-      period: { findMany: vi.fn(), findFirst },
+      period: { findMany: vi.fn(), findFirst, create: vi.fn() },
       category: { findMany: vi.fn(), findFirst: vi.fn() },
     });
 
@@ -20,10 +20,59 @@ describe("Prisma owner-scoped planning repository", () => {
     });
   });
 
+  it("scopes monthly period lookups by authenticated owner", async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst, create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn() },
+    });
+
+    await expect(repository.findPeriodByMonthForOwner(ownerUserId, "2026-03-01")).resolves.toBeNull();
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { userId: ownerUserId, monthStart: new Date("2026-03-01T00:00:00.000Z") },
+    });
+  });
+
+  it("creates periods with the authenticated owner id in Prisma data", async () => {
+    const created = {
+      id: "10000000-0000-0000-0000-000000000003",
+      userId: ownerUserId,
+      monthStart: new Date("2026-03-01T00:00:00.000Z"),
+      currencyCode: "COP",
+      timeZone: "America/Bogota",
+      note: null,
+    };
+    const create = vi.fn().mockResolvedValue(created);
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create },
+      category: { findMany: vi.fn(), findFirst: vi.fn() },
+    });
+
+    await expect(
+      repository.createPeriodForOwner(ownerUserId, {
+        monthStart: "2026-03-01",
+        currencyCode: "COP",
+        timeZone: "America/Bogota",
+        note: null,
+      }),
+    ).resolves.toEqual({ ...created, monthStart: "2026-03-01" });
+
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        userId: ownerUserId,
+        monthStart: new Date("2026-03-01T00:00:00.000Z"),
+        currencyCode: "COP",
+        timeZone: "America/Bogota",
+        note: null,
+      },
+    });
+  });
+
   it("scopes active category lists by authenticated owner", async () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const repository = new PrismaOwnedPlanningRepository({
-      period: { findMany: vi.fn(), findFirst: vi.fn() },
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
       category: { findMany, findFirst: vi.fn() },
     });
 
@@ -38,7 +87,7 @@ describe("Prisma owner-scoped planning repository", () => {
   it("scopes category lookups by authenticated owner", async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const repository = new PrismaOwnedPlanningRepository({
-      period: { findMany: vi.fn(), findFirst: vi.fn() },
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
       category: { findMany: vi.fn(), findFirst },
     });
 
