@@ -36,8 +36,12 @@ export function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean
     .trim();
 }
 
+function buildNonce() {
+  return btoa(crypto.randomUUID());
+}
+
 export function proxy(request: NextRequest) {
-  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const nonce = buildNonce();
   const policy = buildContentSecurityPolicy(
     nonce,
     process.env.NODE_ENV === "development",
