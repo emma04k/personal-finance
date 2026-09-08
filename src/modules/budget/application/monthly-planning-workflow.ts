@@ -1,10 +1,11 @@
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
 import { createCurrencyCode, type CurrencyCodeError } from "@/modules/finance/domain/money";
 import { err, ok, type Result } from "@/modules/finance/domain/result";
-import type {
-  CreatePeriodForOwnerInput,
-  OwnedPeriod,
-  OwnedPlanningRepository,
+import {
+  DuplicateMonthlyPeriodError,
+  type CreatePeriodForOwnerInput,
+  type OwnedPeriod,
+  type OwnedPlanningRepository,
 } from "./owned-planning-repository";
 
 type MonthlyPlanningValidationError = Readonly<{
@@ -51,13 +52,24 @@ export async function openMonthlyBudgetPeriod({
   );
   if (existingPeriod) return ok({ period: existingPeriod, created: false });
 
-  const period = await repository.createPeriodForOwner(owner.userId, {
-    monthStart: monthStart.value,
-    currencyCode: currency.value,
-    timeZone: input.timeZone,
-    note: input.note ?? null,
-  });
-  return ok({ period, created: true });
+  try {
+    const period = await repository.createPeriodForOwner(owner.userId, {
+      monthStart: monthStart.value,
+      currencyCode: currency.value,
+      timeZone: input.timeZone,
+      note: input.note ?? null,
+    });
+    return ok({ period, created: true });
+  } catch (error) {
+    if (!(error instanceof DuplicateMonthlyPeriodError)) throw error;
+
+    const racedPeriod = await repository.findPeriodByMonthForOwner(
+      owner.userId,
+      monthStart.value,
+    );
+    if (racedPeriod) return ok({ period: racedPeriod, created: false });
+    throw error;
+  }
 }
 
 function validateMonthStart(input: string): Result<string, MonthlyPlanningValidationError> {

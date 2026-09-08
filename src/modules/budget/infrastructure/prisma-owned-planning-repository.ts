@@ -1,8 +1,9 @@
-import type {
-  CreatePeriodForOwnerInput,
-  OwnedCategory,
-  OwnedPeriod,
-  OwnedPlanningRepository,
+import {
+  DuplicateMonthlyPeriodError,
+  type CreatePeriodForOwnerInput,
+  type OwnedCategory,
+  type OwnedPeriod,
+  type OwnedPlanningRepository,
 } from "@/modules/budget/application/owned-planning-repository";
 
 type PrismaPeriodRecord = Omit<OwnedPeriod, "monthStart"> & {
@@ -54,17 +55,22 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
   }
 
   async createPeriodForOwner(ownerUserId: string, input: CreatePeriodForOwnerInput) {
-    const record = await createPeriod(this.db.period, {
-      data: {
-        userId: ownerUserId,
-        monthStart: toMonthStartDate(input.monthStart),
-        currencyCode: input.currencyCode,
-        timeZone: input.timeZone,
-        note: input.note ?? null,
-      },
-    });
+    try {
+      const record = await createPeriod(this.db.period, {
+        data: {
+          userId: ownerUserId,
+          monthStart: toMonthStartDate(input.monthStart),
+          currencyCode: input.currencyCode,
+          timeZone: input.timeZone,
+          note: input.note ?? null,
+        },
+      });
 
-    return toOwnedPeriod(record);
+      return toOwnedPeriod(record);
+    } catch (error) {
+      if (isPrismaOwnerMonthUniqueConstraintError(error)) throw new DuplicateMonthlyPeriodError();
+      throw error;
+    }
   }
 
   async listActiveCategoriesForOwner(ownerUserId: string) {
@@ -104,6 +110,24 @@ function createPeriod(
   args: Record<string, unknown>,
 ) {
   return (period.create as (args: Record<string, unknown>) => Promise<PrismaPeriodRecord>)(args);
+}
+
+function isPrismaOwnerMonthUniqueConstraintError(error: unknown) {
+  if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "P2002") {
+    return false;
+  }
+
+  const target = "meta" in error
+    && typeof error.meta === "object"
+    && error.meta !== null
+    && "target" in error.meta
+    ? error.meta.target
+    : null;
+
+  return Array.isArray(target)
+    && target.length === 2
+    && target.includes("userId")
+    && target.includes("monthStart");
 }
 
 function findManyCategories(

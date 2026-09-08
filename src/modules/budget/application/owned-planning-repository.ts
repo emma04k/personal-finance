@@ -16,6 +16,13 @@ export type OwnedCategory = {
   readonly archivedAt: string | null;
 };
 
+export class DuplicateMonthlyPeriodError extends Error {
+  constructor() {
+    super("A monthly period already exists for this owner and month.");
+    this.name = "DuplicateMonthlyPeriodError";
+  }
+}
+
 export type CreatePeriodForOwnerInput = {
   readonly monthStart: string;
   readonly currencyCode: string;
