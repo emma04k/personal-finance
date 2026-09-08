@@ -7,4 +7,349 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Business models and migrations begin in Phase 2.
+model User {
+  id          String     @id @default(uuid()) @db.Uuid
+  email       String     @unique @db.VarChar(320)
+  displayName String?    @db.VarChar(120)
+  role        UserRole   @default(MEMBER)
+  status      UserStatus @default(INVITED)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  oidcAccounts     OidcAccount[]
+  preference       UserPreference?
+  periods          Period[]
+  categories       Category[]
+  budgetLines      BudgetLine[]
+  transactions     Transaction[]
+  recurringRules   RecurringRule[]
+  debtAccounts     DebtAccount[]
+  debtPayments     DebtPayment[]
+  goals            Goal[]
+  importJobs       ImportJob[]
+  actedAuditEvents AuditEvent[]    @relation("AuditActor")
+  ownedAuditEvents AuditEvent[]    @relation("AuditOwner")
+}
+
+model OidcAccount {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @db.Uuid
+  provider          String   @db.VarChar(80)
+  providerAccountId String   @db.VarChar(191)
+  issuer            String?  @db.VarChar(255)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model UserPreference {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @db.Uuid
+  currencyCode String   @db.VarChar(3)
+  timeZone     String   @db.VarChar(64)
+  locale       String?  @db.VarChar(16)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Period {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  monthStart   DateTime @db.Date
+  currencyCode String   @db.VarChar(3)
+  timeZone     String   @db.VarChar(64)
+  note         String?  @db.VarChar(500)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgetLines  BudgetLine[]
+  transactions Transaction[]
+  debtPayments DebtPayment[]
+
+  @@unique([userId, monthStart])
+  @@unique([id, userId])
+  @@index([userId])
+  @@index([userId, monthStart])
+}
+
+model Category {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @db.Uuid
+  type        CategoryType
+  name        String       @db.VarChar(120)
+  sortOrder   Int          @default(0)
+  archivedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgetLines    BudgetLine[]
+  transactions   Transaction[]
+  recurringRules RecurringRule[]
+
+  @@unique([userId, type, name])
+  @@unique([id, userId])
+  @@index([userId])
+  @@index([userId, type])
+}
+
+model BudgetLine {
+  id                 String         @id @default(uuid()) @db.Uuid
+  userId             String         @db.Uuid
+  periodId           String         @db.Uuid
+  categoryId         String         @db.Uuid
+  kind               BudgetLineKind @default(PLANNED)
+  plannedAmountMinor BigInt         @default(0)
+  actualAmountMinor  BigInt?
+  currencyCode       String         @db.VarChar(3)
+  notes              String?        @db.VarChar(500)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period   Period   @relation(fields: [periodId, userId], references: [id, userId], onDelete: Cascade)
+  category Category @relation(fields: [categoryId, userId], references: [id, userId])
+
+  @@unique([periodId, categoryId])
+  @@index([userId])
+  @@index([userId, periodId])
+  @@index([userId, categoryId])
+}
+
+model Transaction {
+  id           String               @id @default(uuid()) @db.Uuid
+  userId       String               @db.Uuid
+  periodId     String               @db.Uuid
+  categoryId   String?              @db.Uuid
+  importJobId  String?              @db.Uuid
+  direction    TransactionDirection
+  amountMinor  BigInt
+  currencyCode String               @db.VarChar(3)
+  occurredOn   DateTime             @db.Date
+  description  String               @db.VarChar(255)
+  notes        String?              @db.VarChar(500)
+  externalId   String?              @db.VarChar(191)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period    Period     @relation(fields: [periodId, userId], references: [id, userId], onDelete: Cascade)
+  category  Category?  @relation(fields: [categoryId, userId], references: [id, userId])
+  importJob ImportJob? @relation(fields: [importJobId, userId], references: [id, userId])
+
+  @@unique([userId, externalId])
+  @@index([userId])
+  @@index([userId, occurredOn])
+  @@index([userId, periodId])
+  @@index([userId, categoryId])
+  @@index([userId, importJobId])
+}
+
+model RecurringRule {
+  id           String             @id @default(uuid()) @db.Uuid
+  userId       String             @db.Uuid
+  categoryId   String?            @db.Uuid
+  name         String             @db.VarChar(120)
+  frequency    RecurringFrequency
+  amountMinor  BigInt
+  currencyCode String             @db.VarChar(3)
+  startOn      DateTime           @db.Date
+  nextDueOn    DateTime           @db.Date
+  endOn        DateTime?          @db.Date
+  status       RuleStatus         @default(ACTIVE)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId, userId], references: [id, userId])
+
+  @@index([userId])
+  @@index([userId, status, nextDueOn])
+  @@index([userId, categoryId])
+}
+
+model DebtAccount {
+  id                          String     @id @default(uuid()) @db.Uuid
+  userId                      String     @db.Uuid
+  name                        String     @db.VarChar(120)
+  creditorName                String?    @db.VarChar(120)
+  currencyCode                String     @db.VarChar(3)
+  openingBalanceMinor         BigInt
+  currentBalanceMinor         BigInt
+  defaultRequiredPaymentMinor BigInt
+  status                      DebtStatus @default(ACTIVE)
+  openedOn                    DateTime?  @db.Date
+  closedOn                    DateTime?  @db.Date
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime   @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  debtPayments DebtPayment[]
+
+  @@unique([userId, name])
+  @@unique([id, userId])
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model DebtPayment {
+  id                           String    @id @default(uuid()) @db.Uuid
+  userId                       String    @db.Uuid
+  periodId                     String    @db.Uuid
+  debtAccountId                String    @db.Uuid
+  amountMinor                  BigInt    @default(0)
+  currencyCode                 String    @db.VarChar(3)
+  paidOn                       DateTime? @db.Date
+  requiredPaymentOverrideMinor BigInt?
+  notes                        String?   @db.VarChar(500)
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period      Period      @relation(fields: [periodId, userId], references: [id, userId], onDelete: Cascade)
+  debtAccount DebtAccount @relation(fields: [debtAccountId, userId], references: [id, userId])
+
+  @@unique([periodId, debtAccountId])
+  @@index([userId])
+  @@index([userId, periodId])
+  @@index([userId, debtAccountId])
+}
+
+model Goal {
+  id                 String     @id @default(uuid()) @db.Uuid
+  userId             String     @db.Uuid
+  name               String     @db.VarChar(120)
+  targetAmountMinor  BigInt
+  currentAmountMinor BigInt     @default(0)
+  currencyCode       String     @db.VarChar(3)
+  targetDate         DateTime?  @db.Date
+  status             GoalStatus @default(ACTIVE)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model ImportJob {
+  id           String          @id @default(uuid()) @db.Uuid
+  userId       String          @db.Uuid
+  type         ImportJobType   @default(WORKBOOK)
+  status       ImportJobStatus @default(PENDING)
+  fileName     String          @db.VarChar(255)
+  sourceHash   String?         @db.VarChar(128)
+  currencyCode String          @db.VarChar(3)
+  timeZone     String          @db.VarChar(64)
+  errorMessage  String?        @db.VarChar(500)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([id, userId])
+  @@unique([userId, sourceHash])
+  @@index([userId])
+  @@index([userId, status, createdAt])
+}
+
+model AuditEvent {
+  id          String      @id @default(uuid()) @db.Uuid
+  ownerUserId String      @db.Uuid
+  actorUserId String?     @db.Uuid
+  action      AuditAction
+  entityType  String      @db.VarChar(80)
+  entityId    String      @db.VarChar(191)
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  owner User  @relation("AuditOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([ownerUserId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserRole {
+  OWNER
+  MEMBER
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+  SAVINGS
+  DEBT_PAYMENT
+}
+
+enum BudgetLineKind {
+  PLANNED
+  ACTUAL
+}
+
+enum TransactionDirection {
+  INFLOW
+  OUTFLOW
+}
+
+enum RecurringFrequency {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum RuleStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+enum DebtStatus {
+  ACTIVE
+  PAID_OFF
+  CLOSED
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum ImportJobType {
+  WORKBOOK
+}
+
+enum ImportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  IMPORT
+  AUTHENTICATE
+}
