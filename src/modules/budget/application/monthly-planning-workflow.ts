@@ -8,8 +8,8 @@ import type {
 } from "./owned-planning-repository";
 
 type MonthlyPlanningValidationError = Readonly<{
-  code: "INVALID_MONTH_START" | "INVALID_TIME_ZONE";
-  field: "monthStart" | "timeZone";
+  code: "INVALID_MONTH_START" | "INVALID_TIME_ZONE" | "NOTE_TOO_LONG";
+  field: "monthStart" | "timeZone" | "note";
 }>;
 
 export type MonthlyPlanningError = MonthlyPlanningValidationError | CurrencyCodeError;
@@ -39,6 +39,10 @@ export async function openMonthlyBudgetPeriod({
 
   if (!isValidTimeZone(input.timeZone)) {
     return err({ code: "INVALID_TIME_ZONE", field: "timeZone" });
+  }
+
+  if (input.note !== null && input.note !== undefined && input.note.length > 500) {
+    return err({ code: "NOTE_TOO_LONG", field: "note" });
   }
 
   const existingPeriod = await repository.findPeriodByMonthForOwner(

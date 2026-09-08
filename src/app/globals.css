@@ -596,6 +596,34 @@ h2 {
   font-weight: 750;
 }
 
+.budget-period-form .field-error {
+  min-height: 1.35em;
+  margin: -4px 0 4px;
+  color: #b42318;
+  font-size: 0.9rem;
+}
+
+.budget-period-form [aria-invalid="true"] {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px #b42318;
+}
+
+.budget-period-form .form-feedback {
+  margin: 2px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  font-weight: 700;
+}
+
+.budget-period-form .form-feedback-error {
+  border-left: 4px solid #b42318;
+}
+
+.budget-period-form .form-feedback-success {
+  border-left: 4px solid var(--primary);
+}
+
 .budget-period-form input,
 .budget-period-form select {
   width: 100%;

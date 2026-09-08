@@ -10,7 +10,7 @@ import type {
 } from "@/modules/budget/application/owned-planning-repository";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
-import { createBudgetPeriodAction } from "./actions";
+import { BudgetPeriodForm } from "./budget-period-form";
 
 type BudgetPlanningState =
   | Readonly<{
@@ -107,45 +107,7 @@ function BudgetPlanningContent({
           </p>
         </div>
 
-        <form className="budget-period-form" action={createBudgetPeriodAction}>
-          <label htmlFor="period-month">Inicio del mes</label>
-          <input
-            id="period-month"
-            name="monthStart"
-            type="month"
-            defaultValue={currentMonthStart}
-            required
-          />
-
-          <label htmlFor="period-currency">Moneda</label>
-          <select id="period-currency" name="currencyCode" defaultValue="COP" required>
-            <option value="COP">COP</option>
-            <option value="USD">USD</option>
-            <option value="JPY">JPY</option>
-            <option value="KWD">KWD</option>
-          </select>
-
-          <label htmlFor="period-time-zone">Zona horaria</label>
-          <input
-            id="period-time-zone"
-            name="timeZone"
-            type="text"
-            defaultValue="America/Bogota"
-            autoComplete="off"
-            required
-          />
-
-          <label htmlFor="period-note">Nota opcional</label>
-          <input
-            id="period-note"
-            name="note"
-            type="text"
-            maxLength={500}
-            placeholder="Ej. Mes con pagos especiales"
-          />
-
-          <button type="submit">Crear o abrir periodo</button>
-        </form>
+        <BudgetPeriodForm currentMonthStart={currentMonthStart} />
       </section>
 
       <section className="budget-status-grid" aria-label="Estado de planificación">
