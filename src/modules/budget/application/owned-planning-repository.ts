@@ -16,12 +16,27 @@ export type OwnedCategory = {
   readonly archivedAt: string | null;
 };
 
+export type CreatePeriodForOwnerInput = {
+  readonly monthStart: string;
+  readonly currencyCode: string;
+  readonly timeZone: string;
+  readonly note?: string | null;
+};
+
 export type OwnedPlanningRepository = {
   readonly listPeriodsForOwner: (ownerUserId: string) => Promise<readonly OwnedPeriod[]>;
   readonly findPeriodForOwner: (
     ownerUserId: string,
     periodId: string,
   ) => Promise<OwnedPeriod | null>;
+  readonly findPeriodByMonthForOwner: (
+    ownerUserId: string,
+    monthStart: string,
+  ) => Promise<OwnedPeriod | null>;
+  readonly createPeriodForOwner: (
+    ownerUserId: string,
+    input: CreatePeriodForOwnerInput,
+  ) => Promise<OwnedPeriod>;
   readonly listActiveCategoriesForOwner: (ownerUserId: string) => Promise<readonly OwnedCategory[]>;
   readonly findCategoryForOwner: (
     ownerUserId: string,
@@ -30,15 +45,15 @@ export type OwnedPlanningRepository = {
 };
 
 export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository {
-  readonly #periods: readonly OwnedPeriod[];
-  readonly #categories: readonly OwnedCategory[];
+  readonly #periods: OwnedPeriod[];
+  readonly #categories: OwnedCategory[];
 
   constructor(records: {
     readonly periods?: readonly OwnedPeriod[];
     readonly categories?: readonly OwnedCategory[];
   }) {
-    this.#periods = records.periods ?? [];
-    this.#categories = records.categories ?? [];
+    this.#periods = [...(records.periods ?? [])];
+    this.#categories = [...(records.categories ?? [])];
   }
 
   async listPeriodsForOwner(ownerUserId: string) {
@@ -51,6 +66,27 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
         (period) => period.userId === ownerUserId && period.id === periodId,
       ) ?? null
     );
+  }
+
+  async findPeriodByMonthForOwner(ownerUserId: string, monthStart: string) {
+    return (
+      this.#periods.find(
+        (period) => period.userId === ownerUserId && period.monthStart === monthStart,
+      ) ?? null
+    );
+  }
+
+  async createPeriodForOwner(ownerUserId: string, input: CreatePeriodForOwnerInput) {
+    const period: OwnedPeriod = {
+      id: crypto.randomUUID(),
+      userId: ownerUserId,
+      monthStart: input.monthStart,
+      currencyCode: input.currencyCode,
+      timeZone: input.timeZone,
+      note: input.note ?? null,
+    };
+    this.#periods.push(period);
+    return period;
   }
 
   async listActiveCategoriesForOwner(ownerUserId: string) {
