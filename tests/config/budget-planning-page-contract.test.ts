@@ -7,7 +7,7 @@ const actionPath = resolve("src/app/budget/actions.ts");
 const stylesheetPath = resolve("src/app/globals.css");
 
 function source(path: string) {
-  return readFileSync(path, "utf8");
+  return readFileSync(path, "utf8").replaceAll("\r\n", "\n");
 }
 
 function declarationBlock(selector: string) {
