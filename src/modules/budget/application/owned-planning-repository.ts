@@ -23,11 +23,23 @@ export class DuplicateMonthlyPeriodError extends Error {
   }
 }
 
+export class DuplicateCategoryError extends Error {
+  constructor() {
+    super("A category already exists for this owner, type, and name.");
+    this.name = "DuplicateCategoryError";
+  }
+}
+
 export type CreatePeriodForOwnerInput = {
   readonly monthStart: string;
   readonly currencyCode: string;
   readonly timeZone: string;
   readonly note?: string | null;
+};
+
+export type CreateCategoryForOwnerInput = {
+  readonly type: OwnedCategory["type"];
+  readonly name: string;
 };
 
 export type OwnedPlanningRepository = {
@@ -49,6 +61,10 @@ export type OwnedPlanningRepository = {
     ownerUserId: string,
     categoryId: string,
   ) => Promise<OwnedCategory | null>;
+  readonly createCategoryForOwner: (
+    ownerUserId: string,
+    input: CreateCategoryForOwnerInput,
+  ) => Promise<OwnedCategory>;
 };
 
 export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository {
@@ -108,5 +124,25 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
         (category) => category.userId === ownerUserId && category.id === categoryId,
       ) ?? null
     );
+  }
+
+  async createCategoryForOwner(ownerUserId: string, input: CreateCategoryForOwnerInput) {
+    const duplicate = this.#categories.some(
+      (category) => category.userId === ownerUserId
+        && category.type === input.type
+        && category.name === input.name,
+    );
+    if (duplicate) throw new DuplicateCategoryError();
+
+    const category: OwnedCategory = {
+      id: crypto.randomUUID(),
+      userId: ownerUserId,
+      type: input.type,
+      name: input.name,
+      sortOrder: 0,
+      archivedAt: null,
+    };
+    this.#categories.push(category);
+    return category;
   }
 }

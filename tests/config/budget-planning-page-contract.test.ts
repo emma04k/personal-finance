@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 const pagePath = resolve("src/app/budget/page.tsx");
 const actionPath = resolve("src/app/budget/actions.ts");
+const categoryActionStatePath = resolve("src/app/budget/budget-category-action-state.ts");
+const categoryFormPath = resolve("src/app/budget/budget-category-form.tsx");
 const actionStatePath = resolve("src/app/budget/budget-period-action-state.ts");
 const formPath = resolve("src/app/budget/budget-period-form.tsx");
 const stylesheetPath = resolve("src/app/globals.css");
@@ -108,11 +110,54 @@ describe("budget planning page contract", () => {
     expect(form).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
   });
 
+  it("renders active owner-scoped categories and a category creation form", () => {
+    const page = source(pagePath);
+
+    expect(page).toMatch(/listActiveCategoriesForOwner\(owner\.userId\)/);
+    expect(page).toMatch(/BudgetCategoryForm/);
+    expect(page).toMatch(/categories\.map/);
+    expect(page).toMatch(/category\.archivedAt/);
+    expect(page).toMatch(/aria-labelledby="create-category-heading"/);
+    expect(page).toMatch(/aria-labelledby="active-categories-heading"/);
+  });
+
+  it("keeps category server-action state typed outside the use server module", () => {
+    expect(existsSync(categoryActionStatePath)).toBe(true);
+    const action = source(actionPath);
+    const actionState = source(categoryActionStatePath);
+
+    expect(actionState).toMatch(/export type BudgetCategoryActionState/);
+    expect(actionState).toMatch(/export const initialBudgetCategoryActionState/);
+    expect(action).toMatch(/import type \{[\s\S]*BudgetCategoryActionState/);
+    expect(action).toMatch(/createBudgetCategoryAction/);
+    expect(action).toMatch(/createBudgetCategory/);
+    expect(action).not.toMatch(/formData\.get\(["']userId["']\)|userId:\s*formData/);
+  });
+
+  it("renders accessible inline category-form feedback through useActionState", () => {
+    expect(existsSync(categoryFormPath)).toBe(true);
+    const form = source(categoryFormPath);
+
+    expect(form).toMatch(/["']use client["']/);
+    expect(form).toMatch(/useActionState\(createBudgetCategoryAction, initialBudgetCategoryActionState\)/);
+    expect(form).toMatch(/<form className="budget-category-form" action=\{action\}/);
+    expect(form).toMatch(/htmlFor="category-type"/);
+    expect(form).toMatch(/name="type"/);
+    expect(form).toMatch(/htmlFor="category-name"/);
+    expect(form).toMatch(/name="name"/);
+    expect(form).toMatch(/aria-live="polite"/);
+    expect(form).toMatch(/role=\{state\.status === "error" \? "alert" : "status"\}/);
+    expect(form).toMatch(/aria-invalid=\{Boolean\(state\.fieldErrors\?\.name\)\}/);
+    expect(form).toMatch(/aria-describedby="category-name-error"/);
+    expect(form).toMatch(/disabled=\{pending\}/);
+    expect(form).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
+  });
+
   it("adds mobile-first budget CSS with safe widths, 16px form text, and 44px touch targets", () => {
     const budgetPage = declarationBlock(".budget-page");
-    const budgetForm = declarationBlock(".budget-period-form");
-    const budgetInputs = declarationBlock(".budget-period-form input,\n.budget-period-form select");
-    const budgetButton = declarationBlock(".budget-period-form button");
+    const budgetForm = declarationBlock(".budget-period-form,\n.budget-category-form");
+    const budgetInputs = declarationBlock(".budget-period-form input,\n.budget-period-form select,\n.budget-category-form input,\n.budget-category-form select");
+    const budgetButton = declarationBlock(".budget-period-form button,\n.budget-category-form button");
 
     expect(budgetPage).toMatch(/min-width:\s*0\s*;/);
     expect(budgetPage).toMatch(/max-width:\s*100%\s*;/);
@@ -120,5 +165,32 @@ describe("budget planning page contract", () => {
     expect(budgetInputs).toMatch(/font-size:\s*16px\s*;/);
     expect(budgetInputs).toMatch(/min-height:\s*(?:44|48)px\s*;/);
     expect(budgetButton).toMatch(/min-height:\s*(?:44|48)px\s*;/);
+  });
+
+  it("adds mobile-first category form and list CSS", () => {
+    const categoryForm = declarationBlock(".budget-period-form,\n.budget-category-form");
+    const categoryInputs = declarationBlock(".budget-period-form input,\n.budget-period-form select,\n.budget-category-form input,\n.budget-category-form select");
+    const categoryButton = declarationBlock(".budget-period-form button,\n.budget-category-form button");
+    const categoryList = declarationBlock(".category-list");
+    const categoryItem = declarationBlock(".category-list-item");
+    const categoryItemText = declarationBlock(".category-list-item span,\n.category-list-item small");
+
+    expect(categoryForm).toMatch(/display:\s*grid\s*;/);
+    expect(categoryInputs).toMatch(/font-size:\s*16px\s*;/);
+    expect(categoryInputs).toMatch(/min-height:\s*(?:44|48)px\s*;/);
+    expect(categoryButton).toMatch(/min-height:\s*(?:44|48)px\s*;/);
+    expect(categoryList).toMatch(/display:\s*grid\s*;/);
+    expect(categoryList).toMatch(/gap:\s*\d+px\s*;/);
+    expect(categoryItem).toMatch(/min-width:\s*0\s*;/);
+    expect(categoryItemText).toMatch(/overflow-wrap:\s*anywhere\s*;/);
+  });
+
+  it("applies the same accessible feedback CSS to category and period forms", () => {
+    const stylesheet = source(stylesheetPath);
+
+    expect(stylesheet).toMatch(/\.budget-period-form \.field-error,\n\.budget-category-form \.field-error/);
+    expect(stylesheet).toMatch(/\.budget-period-form \[aria-invalid="true"\],\n\.budget-category-form \[aria-invalid="true"\]/);
+    expect(stylesheet).toMatch(/\.budget-period-form \.form-feedback,\n\.budget-category-form \.form-feedback/);
+    expect(stylesheet).toMatch(/\.budget-period-form \.form-feedback-error,\n\.budget-category-form \.form-feedback-error/);
   });
 });
