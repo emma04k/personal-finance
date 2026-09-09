@@ -16,6 +16,17 @@ export type OwnedCategory = {
   readonly archivedAt: string | null;
 };
 
+export type OwnedBudgetLine = {
+  readonly id: string;
+  readonly userId: string;
+  readonly periodId: string;
+  readonly categoryId: string;
+  readonly categoryName: string;
+  readonly categoryType: OwnedCategory["type"];
+  readonly plannedAmountMinor: string;
+  readonly currencyCode: string;
+};
+
 export class DuplicateMonthlyPeriodError extends Error {
   constructor() {
     super("A monthly period already exists for this owner and month.");
@@ -42,6 +53,13 @@ export type CreateCategoryForOwnerInput = {
   readonly name: string;
 };
 
+export type UpsertPlannedBudgetLineForOwnerInput = {
+  readonly periodId: string;
+  readonly categoryId: string;
+  readonly plannedAmountMinor: string;
+  readonly currencyCode: string;
+};
+
 export type OwnedPlanningRepository = {
   readonly listPeriodsForOwner: (ownerUserId: string) => Promise<readonly OwnedPeriod[]>;
   readonly findPeriodForOwner: (
@@ -65,18 +83,29 @@ export type OwnedPlanningRepository = {
     ownerUserId: string,
     input: CreateCategoryForOwnerInput,
   ) => Promise<OwnedCategory>;
+  readonly listPlannedBudgetLinesForOwnerPeriod: (
+    ownerUserId: string,
+    periodId: string,
+  ) => Promise<readonly OwnedBudgetLine[]>;
+  readonly upsertPlannedBudgetLineForOwner: (
+    ownerUserId: string,
+    input: UpsertPlannedBudgetLineForOwnerInput,
+  ) => Promise<OwnedBudgetLine>;
 };
 
 export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository {
   readonly #periods: OwnedPeriod[];
   readonly #categories: OwnedCategory[];
+  readonly #budgetLines: OwnedBudgetLine[];
 
   constructor(records: {
     readonly periods?: readonly OwnedPeriod[];
     readonly categories?: readonly OwnedCategory[];
+    readonly budgetLines?: readonly OwnedBudgetLine[];
   }) {
     this.#periods = [...(records.periods ?? [])];
     this.#categories = [...(records.categories ?? [])];
+    this.#budgetLines = [...(records.budgetLines ?? [])];
   }
 
   async listPeriodsForOwner(ownerUserId: string) {
@@ -144,5 +173,47 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
     };
     this.#categories.push(category);
     return category;
+  }
+
+  async listPlannedBudgetLinesForOwnerPeriod(ownerUserId: string, periodId: string) {
+    return this.#budgetLines.filter(
+      (budgetLine) => budgetLine.userId === ownerUserId && budgetLine.periodId === periodId,
+    );
+  }
+
+  async upsertPlannedBudgetLineForOwner(
+    ownerUserId: string,
+    input: UpsertPlannedBudgetLineForOwnerInput,
+  ) {
+    const category = this.#categories.find(
+      (record) => record.userId === ownerUserId && record.id === input.categoryId,
+    );
+    const existing = this.#budgetLines.find(
+      (record) => record.userId === ownerUserId
+        && record.periodId === input.periodId
+        && record.categoryId === input.categoryId,
+    );
+    if (existing) {
+      const updated: OwnedBudgetLine = {
+        ...existing,
+        plannedAmountMinor: input.plannedAmountMinor,
+        currencyCode: input.currencyCode,
+      };
+      this.#budgetLines.splice(this.#budgetLines.indexOf(existing), 1, updated);
+      return updated;
+    }
+
+    const budgetLine: OwnedBudgetLine = {
+      id: crypto.randomUUID(),
+      userId: ownerUserId,
+      periodId: input.periodId,
+      categoryId: input.categoryId,
+      categoryName: category?.name ?? "",
+      categoryType: category?.type ?? "EXPENSE",
+      plannedAmountMinor: input.plannedAmountMinor,
+      currencyCode: input.currencyCode,
+    };
+    this.#budgetLines.push(budgetLine);
+    return budgetLine;
   }
 }

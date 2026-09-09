@@ -3,9 +3,11 @@ import {
   DuplicateCategoryError,
   DuplicateMonthlyPeriodError,
   type CreatePeriodForOwnerInput,
+  type OwnedBudgetLine,
   type OwnedCategory,
   type OwnedPeriod,
   type OwnedPlanningRepository,
+  type UpsertPlannedBudgetLineForOwnerInput,
 } from "@/modules/budget/application/owned-planning-repository";
 
 type PrismaPeriodRecord = Omit<OwnedPeriod, "monthStart"> & {
@@ -16,18 +18,34 @@ type PrismaCategoryRecord = Omit<OwnedCategory, "archivedAt"> & {
   readonly archivedAt: Date | string | null;
 };
 
+type PrismaBudgetLineRecord = Omit<OwnedBudgetLine, "plannedAmountMinor" | "categoryName" | "categoryType"> & {
+  readonly plannedAmountMinor: bigint | number | string;
+  readonly category: Pick<OwnedCategory, "name" | "type">;
+};
+
+type PrismaDelegateMethod = (args: never) => Promise<unknown>;
+
 type PlanningPrismaClient = {
   readonly period: {
-    readonly findMany: (args: never) => Promise<readonly PrismaPeriodRecord[]>;
-    readonly findFirst: (args: never) => Promise<PrismaPeriodRecord | null>;
-    readonly create: (args: never) => Promise<PrismaPeriodRecord>;
+    readonly findMany: PrismaDelegateMethod;
+    readonly findFirst: PrismaDelegateMethod;
+    readonly create: PrismaDelegateMethod;
   };
   readonly category: {
-    readonly findMany: (args: never) => Promise<readonly PrismaCategoryRecord[]>;
-    readonly findFirst: (args: never) => Promise<PrismaCategoryRecord | null>;
-    readonly create: (args: never) => Promise<PrismaCategoryRecord>;
+    readonly findMany: PrismaDelegateMethod;
+    readonly findFirst: PrismaDelegateMethod;
+    readonly create: PrismaDelegateMethod;
+  };
+  readonly budgetLine?: {
+    readonly findMany: PrismaDelegateMethod;
+    readonly updateMany: PrismaDelegateMethod;
+    readonly create: PrismaDelegateMethod;
+    readonly findFirst: PrismaDelegateMethod;
+    readonly update: PrismaDelegateMethod;
   };
 };
+
+type BudgetLinePrismaDelegate = NonNullable<PlanningPrismaClient["budgetLine"]>;
 
 export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
   constructor(private readonly db: PlanningPrismaClient) {}
@@ -109,6 +127,80 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
       throw error;
     }
   }
+
+  async listPlannedBudgetLinesForOwnerPeriod(ownerUserId: string, periodId: string) {
+    const budgetLine = budgetLineDelegate(this.db);
+    const records = await findManyBudgetLines(budgetLine, {
+      where: { userId: ownerUserId, periodId, kind: "PLANNED" },
+      include: { category: { select: { name: true, type: true } } },
+      orderBy: [
+        { category: { type: "asc" } },
+        { category: { sortOrder: "asc" } },
+        { category: { name: "asc" } },
+      ],
+    });
+
+    return records.map(toOwnedBudgetLine);
+  }
+
+  async upsertPlannedBudgetLineForOwner(
+    ownerUserId: string,
+    input: UpsertPlannedBudgetLineForOwnerInput,
+  ) {
+    const amount = BigInt(input.plannedAmountMinor);
+    const budgetLine = budgetLineDelegate(this.db);
+    const includeCategoryLabel = { category: { select: { name: true, type: true } } };
+    const ownerPlannedLineWhere = {
+      userId: ownerUserId,
+      periodId: input.periodId,
+      categoryId: input.categoryId,
+      kind: "PLANNED",
+    };
+
+    const updateResult = await updateManyBudgetLines(budgetLine, {
+      where: ownerPlannedLineWhere,
+      data: { plannedAmountMinor: amount, currencyCode: input.currencyCode },
+    });
+
+    if (updateResult.count > 0) {
+      const record = await findFirstBudgetLine(budgetLine, {
+        where: ownerPlannedLineWhere,
+        include: includeCategoryLabel,
+      });
+      if (!record) throw new Error("Updated planned budget line was not found.");
+      return toOwnedBudgetLine(record);
+    }
+
+    try {
+      const record = await createBudgetLine(budgetLine, {
+        data: {
+          userId: ownerUserId,
+          periodId: input.periodId,
+          categoryId: input.categoryId,
+          kind: "PLANNED",
+          plannedAmountMinor: amount,
+          currencyCode: input.currencyCode,
+        },
+        include: includeCategoryLabel,
+      });
+      return toOwnedBudgetLine(record);
+    } catch (error) {
+      if (!isPrismaPeriodCategoryUniqueConstraintError(error)) throw error;
+
+      const existing = await findFirstBudgetLine(budgetLine, {
+        where: ownerPlannedLineWhere,
+        include: includeCategoryLabel,
+      });
+      if (!existing) throw error;
+
+      const updated = await updateBudgetLine(budgetLine, {
+        where: { id: existing.id },
+        data: { plannedAmountMinor: amount, currencyCode: input.currencyCode },
+        include: includeCategoryLabel,
+      });
+      return toOwnedBudgetLine(updated);
+    }
+  }
 }
 
 function findManyPeriods(
@@ -169,11 +261,34 @@ function isPrismaOwnerTypeNameUniqueConstraintError(error: unknown) {
     && target.includes("name");
 }
 
+function isPrismaPeriodCategoryUniqueConstraintError(error: unknown) {
+  if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "P2002") {
+    return false;
+  }
+
+  const target = "meta" in error
+    && typeof error.meta === "object"
+    && error.meta !== null
+    && "target" in error.meta
+    ? error.meta.target
+    : null;
+
+  return Array.isArray(target)
+    && target.length === 2
+    && target.includes("periodId")
+    && target.includes("categoryId");
+}
+
 function findManyCategories(
   category: PlanningPrismaClient["category"],
   args: Record<string, unknown>,
 ) {
   return (category.findMany as (args: Record<string, unknown>) => Promise<readonly PrismaCategoryRecord[]>)(args);
+}
+
+function budgetLineDelegate(db: PlanningPrismaClient): BudgetLinePrismaDelegate {
+  if (!db.budgetLine) throw new Error("Budget line delegate is required for planned budget lines.");
+  return db.budgetLine;
 }
 
 function findFirstCategory(
@@ -188,6 +303,51 @@ function createCategory(
   args: Record<string, unknown>,
 ) {
   return (category.create as (args: Record<string, unknown>) => Promise<PrismaCategoryRecord>)(args);
+}
+
+function findManyBudgetLines(
+  budgetLine: BudgetLinePrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (budgetLine.findMany as (
+    args: Record<string, unknown>
+  ) => Promise<readonly PrismaBudgetLineRecord[]>)(args);
+}
+
+function updateManyBudgetLines(
+  budgetLine: BudgetLinePrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (budgetLine.updateMany as (
+    args: Record<string, unknown>
+  ) => Promise<{ readonly count: number }>)(args);
+}
+
+function createBudgetLine(
+  budgetLine: BudgetLinePrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (budgetLine.create as (
+    args: Record<string, unknown>
+  ) => Promise<PrismaBudgetLineRecord>)(args);
+}
+
+function findFirstBudgetLine(
+  budgetLine: BudgetLinePrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (budgetLine.findFirst as (
+    args: Record<string, unknown>
+  ) => Promise<PrismaBudgetLineRecord | null>)(args);
+}
+
+function updateBudgetLine(
+  budgetLine: BudgetLinePrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (budgetLine.update as (
+    args: Record<string, unknown>
+  ) => Promise<PrismaBudgetLineRecord>)(args);
 }
 
 function toDateOnly(value: Date | string) {
@@ -216,5 +376,18 @@ function toOwnedCategory(record: PrismaCategoryRecord): OwnedCategory {
   return {
     ...record,
     archivedAt: toNullableIso(record.archivedAt),
+  };
+}
+
+function toOwnedBudgetLine(record: PrismaBudgetLineRecord): OwnedBudgetLine {
+  return {
+    id: record.id,
+    userId: record.userId,
+    periodId: record.periodId,
+    categoryId: record.categoryId,
+    categoryName: record.category.name,
+    categoryType: record.category.type,
+    plannedAmountMinor: record.plannedAmountMinor.toString(),
+    currencyCode: record.currencyCode,
   };
 }
