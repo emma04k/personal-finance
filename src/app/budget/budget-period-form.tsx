@@ -6,8 +6,10 @@ import { initialBudgetPeriodActionState } from "./budget-period-action-state";
 
 export function BudgetPeriodForm({
   currentMonthStart,
+  defaultTimeZone,
 }: {
   readonly currentMonthStart: string;
+  readonly defaultTimeZone: string;
 }) {
   const [state, action, pending] = useActionState(createBudgetPeriodAction, initialBudgetPeriodActionState);
 
@@ -50,7 +52,7 @@ export function BudgetPeriodForm({
         id="period-time-zone"
         name="timeZone"
         type="text"
-        defaultValue="America/Bogota"
+        defaultValue={defaultTimeZone}
         autoComplete="off"
         aria-describedby="period-time-zone-error"
         aria-invalid={Boolean(state.fieldErrors?.timeZone)}

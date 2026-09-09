@@ -48,6 +48,18 @@ describe("budget planning page contract", () => {
     expect(page).not.toMatch(/name="userId"|userId:\s*formData\.get|formData\.get\(["']userId["']\)/);
   });
 
+  it("derives the default month from the same project-owned timezone shown in the form", () => {
+    const page = source(pagePath);
+    const form = source(formPath);
+
+    expect(page).toMatch(/DEFAULT_BUDGET_TIME_ZONE/);
+    expect(page).toMatch(/buildCurrentMonthStartForTimeZone\(\{[\s\S]*now:\s*new Date\(\),[\s\S]*timeZone:\s*DEFAULT_BUDGET_TIME_ZONE,?[\s\S]*\}\)/);
+    expect(page).toMatch(/<BudgetPeriodForm currentMonthStart=\{currentMonthStart\} defaultTimeZone=\{DEFAULT_BUDGET_TIME_ZONE\}/);
+    expect(page).not.toMatch(/getUTCFullYear|getUTCMonth/);
+    expect(form).toMatch(/defaultTimeZone/);
+    expect(form).toMatch(/defaultValue=\{defaultTimeZone\}/);
+  });
+
   it("keeps the server mutation fail-closed and owner-derived", () => {
     expect(existsSync(actionPath)).toBe(true);
     const action = source(actionPath);

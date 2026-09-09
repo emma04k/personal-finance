@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DuplicateMonthlyPeriodError } from "@/modules/budget/application/owned-planning-repository";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 
 const ownerUserId = "00000000-0000-0000-0000-000000000001";
@@ -67,6 +68,47 @@ describe("Prisma owner-scoped planning repository", () => {
         note: null,
       },
     });
+  });
+
+  it("translates Prisma owner-month unique violations into duplicate monthly period errors", async () => {
+    const create = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: { target: ["userId", "monthStart"] },
+    });
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create },
+      category: { findMany: vi.fn(), findFirst: vi.fn() },
+    });
+
+    await expect(
+      repository.createPeriodForOwner(ownerUserId, {
+        monthStart: "2026-03-01",
+        currencyCode: "COP",
+        timeZone: "America/Bogota",
+        note: null,
+      }),
+    ).rejects.toBeInstanceOf(DuplicateMonthlyPeriodError);
+  });
+
+  it("does not translate unrelated Prisma unique violations as monthly duplicates", async () => {
+    const uniqueError = {
+      code: "P2002",
+      meta: { target: ["id", "userId"] },
+    };
+    const create = vi.fn().mockRejectedValue(uniqueError);
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create },
+      category: { findMany: vi.fn(), findFirst: vi.fn() },
+    });
+
+    await expect(
+      repository.createPeriodForOwner(ownerUserId, {
+        monthStart: "2026-03-01",
+        currencyCode: "COP",
+        timeZone: "America/Bogota",
+        note: null,
+      }),
+    ).rejects.toBe(uniqueError);
   });
 
   it("scopes active category lists by authenticated owner", async () => {

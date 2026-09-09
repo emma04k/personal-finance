@@ -8,6 +8,10 @@ import type {
   OwnedCategory,
   OwnedPeriod,
 } from "@/modules/budget/application/owned-planning-repository";
+import {
+  DEFAULT_BUDGET_TIME_ZONE,
+  buildCurrentMonthStartForTimeZone,
+} from "@/modules/budget/application/default-budget-period";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
 import { BudgetPeriodForm } from "./budget-period-form";
@@ -78,7 +82,10 @@ function BudgetPlanningContent({
   readonly periods: readonly OwnedPeriod[];
   readonly categories: readonly OwnedCategory[];
 }) {
-  const currentMonthStart = buildCurrentMonthStart(new Date());
+  const currentMonthStart = buildCurrentMonthStartForTimeZone({
+    now: new Date(),
+    timeZone: DEFAULT_BUDGET_TIME_ZONE,
+  });
   const hasPeriods = periods.length > 0;
   const hasCategories = categories.length > 0;
 
@@ -107,7 +114,7 @@ function BudgetPlanningContent({
           </p>
         </div>
 
-        <BudgetPeriodForm currentMonthStart={currentMonthStart} />
+        <BudgetPeriodForm currentMonthStart={currentMonthStart} defaultTimeZone={DEFAULT_BUDGET_TIME_ZONE} />
       </section>
 
       <section className="budget-status-grid" aria-label="Estado de planificación">
@@ -142,10 +149,6 @@ function BudgetPlanningContent({
       ) : null}
     </section>
   );
-}
-
-function buildCurrentMonthStart(today: Date) {
-  return `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatPeriodLabel(period: OwnedPeriod) {

@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { openMonthlyBudgetPeriod } from "@/modules/budget/application/monthly-planning-workflow";
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
-import type {
-  CreatePeriodForOwnerInput,
-  OwnedPlanningRepository,
+import {
+  DuplicateMonthlyPeriodError,
+  type CreatePeriodForOwnerInput,
+  type OwnedPlanningRepository,
 } from "@/modules/budget/application/owned-planning-repository";
 
 const owner: OwnershipContext = {
@@ -118,5 +119,70 @@ describe("monthly planning workflow", () => {
     expect(result).toEqual({ ok: true, value: { period: existingPeriod, created: false } });
     expect(repository.findPeriodByMonthForOwner).toHaveBeenCalledWith(owner.userId, "2026-03-01");
     expect(repository.createPeriodForOwner).not.toHaveBeenCalled();
+  });
+
+  it("recovers a duplicate monthly creation race by opening the owner-scoped period", async () => {
+    const racedPeriod = {
+      id: "10000000-0000-0000-0000-000000000004",
+      userId: owner.userId,
+      monthStart: "2026-04-01",
+      currencyCode: "COP",
+      timeZone: "America/Bogota",
+      note: "created by concurrent request",
+    };
+    const findPeriodByMonthForOwner = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(racedPeriod);
+    const repository = {
+      findPeriodByMonthForOwner,
+      createPeriodForOwner: vi.fn(async () => {
+        throw new DuplicateMonthlyPeriodError();
+      }),
+    } as unknown as OwnedPlanningRepository;
+
+    const result = await openMonthlyBudgetPeriod({
+      owner,
+      repository,
+      input: {
+        monthStart: "2026-04-01",
+        currencyCode: "USD",
+        timeZone: "UTC",
+        note: "ignored after race",
+      },
+    });
+
+    expect(result).toEqual({ ok: true, value: { period: racedPeriod, created: false } });
+    expect(findPeriodByMonthForOwner).toHaveBeenNthCalledWith(1, owner.userId, "2026-04-01");
+    expect(findPeriodByMonthForOwner).toHaveBeenNthCalledWith(2, owner.userId, "2026-04-01");
+  });
+
+  it("does not hide unrelated create failures behind duplicate recovery", async () => {
+    const concurrentPeriod = {
+      id: "10000000-0000-0000-0000-000000000005",
+      userId: owner.userId,
+      monthStart: "2026-05-01",
+      currencyCode: "COP",
+      timeZone: "America/Bogota",
+      note: null,
+    };
+    const repository = {
+      findPeriodByMonthForOwner: vi.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(concurrentPeriod),
+      createPeriodForOwner: vi.fn(async () => {
+        throw new Error("database unavailable");
+      }),
+    } as unknown as OwnedPlanningRepository;
+
+    await expect(openMonthlyBudgetPeriod({
+      owner,
+      repository,
+      input: {
+        monthStart: "2026-05-01",
+        currencyCode: "COP",
+        timeZone: "America/Bogota",
+        note: null,
+      },
+    })).rejects.toThrow("database unavailable");
   });
 });
