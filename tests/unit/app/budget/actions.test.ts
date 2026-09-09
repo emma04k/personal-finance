@@ -29,13 +29,47 @@ const mocks = vi.hoisted(() => {
     sortOrder: 0,
     archivedAt: null,
   }));
+  const findPeriodForOwner = vi.fn(async () => ({
+    id: "10000000-0000-0000-0000-000000000001",
+    userId: owner.userId,
+    monthStart: "2026-03-01",
+    currencyCode: "COP",
+    timeZone: "America/Bogota",
+    note: null,
+  }));
+  const findCategoryForOwner = vi.fn(async () => ({
+    id: "20000000-0000-0000-0000-000000000001",
+    userId: owner.userId,
+    type: "EXPENSE" as const,
+    name: "Groceries",
+    sortOrder: 0,
+    archivedAt: null,
+  }));
+  const upsertPlannedBudgetLineForOwner = vi.fn(async (_ownerUserId: string, input) => ({
+    id: "30000000-0000-0000-0000-000000000001",
+    userId: owner.userId,
+    periodId: input.periodId,
+    categoryId: input.categoryId,
+    categoryName: "Groceries",
+    categoryType: "EXPENSE" as const,
+    plannedAmountMinor: input.plannedAmountMinor,
+    currencyCode: input.currencyCode,
+  }));
   const repository: Pick<
     OwnedPlanningRepository,
-    "findPeriodByMonthForOwner" | "createPeriodForOwner" | "createCategoryForOwner"
+    | "findPeriodByMonthForOwner"
+    | "createPeriodForOwner"
+    | "createCategoryForOwner"
+    | "findPeriodForOwner"
+    | "findCategoryForOwner"
+    | "upsertPlannedBudgetLineForOwner"
   > = {
     findPeriodByMonthForOwner,
     createPeriodForOwner,
     createCategoryForOwner,
+    findPeriodForOwner,
+    findCategoryForOwner,
+    upsertPlannedBudgetLineForOwner,
   };
 
   return {
@@ -44,6 +78,9 @@ const mocks = vi.hoisted(() => {
     findPeriodByMonthForOwner,
     createPeriodForOwner,
     createCategoryForOwner,
+    findPeriodForOwner,
+    findCategoryForOwner,
+    upsertPlannedBudgetLineForOwner,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
     revalidatePath: vi.fn(),
   };
@@ -68,9 +105,11 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import {
+  createBudgetLineAction,
   createBudgetCategoryAction,
   createBudgetPeriodAction,
 } from "@/app/budget/actions";
+import { initialBudgetLineActionState } from "@/app/budget/budget-line-action-state";
 import { initialBudgetCategoryActionState } from "@/app/budget/budget-category-action-state";
 import { initialBudgetPeriodActionState } from "@/app/budget/budget-period-action-state";
 
@@ -87,6 +126,16 @@ function categoryForm(overrides: Partial<Record<"type" | "name", string>> = {}) 
   const formData = new FormData();
   formData.set("type", overrides.type ?? "EXPENSE");
   formData.set("name", overrides.name ?? "Groceries");
+  return formData;
+}
+
+function budgetLineForm(overrides: Partial<Record<"periodId" | "categoryId" | "plannedAmount" | "currencyCode" | "userId", string>> = {}) {
+  const formData = new FormData();
+  formData.set("periodId", overrides.periodId ?? "10000000-0000-0000-0000-000000000001");
+  formData.set("categoryId", overrides.categoryId ?? "20000000-0000-0000-0000-000000000001");
+  formData.set("plannedAmount", overrides.plannedAmount ?? "123.45");
+  formData.set("currencyCode", overrides.currencyCode ?? "COP");
+  if (overrides.userId !== undefined) formData.set("userId", overrides.userId);
   return formData;
 }
 
@@ -109,6 +158,32 @@ describe("budget period server action", () => {
       name: input.name,
       sortOrder: 0,
       archivedAt: null,
+    }));
+    mocks.findPeriodForOwner.mockResolvedValue({
+      id: "10000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      monthStart: "2026-03-01",
+      currencyCode: "COP",
+      timeZone: "America/Bogota",
+      note: null,
+    });
+    mocks.findCategoryForOwner.mockResolvedValue({
+      id: "20000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      type: "EXPENSE",
+      name: "Groceries",
+      sortOrder: 0,
+      archivedAt: null,
+    });
+    mocks.upsertPlannedBudgetLineForOwner.mockImplementation(async (_ownerUserId: string, input) => ({
+      id: "30000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      periodId: input.periodId,
+      categoryId: input.categoryId,
+      categoryName: "Groceries",
+      categoryType: "EXPENSE",
+      plannedAmountMinor: input.plannedAmountMinor,
+      currencyCode: input.currencyCode,
     }));
   });
 
@@ -254,6 +329,116 @@ describe("budget period server action", () => {
         categoryForm({ type: "EXPENSE", name: "Groceries" }),
       ),
     ).rejects.toThrow("database unavailable");
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("saves planned budget lines from authenticated owner context without accepting client owner ids", async () => {
+    const result = await createBudgetLineAction(
+      initialBudgetLineActionState,
+      budgetLineForm({ userId: "00000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(result).toMatchObject({
+      status: "success",
+      message: "Monto planeado guardado.",
+    });
+    expect(mocks.upsertPlannedBudgetLineForOwner).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: "10000000-0000-0000-0000-000000000001",
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      plannedAmountMinor: "12345",
+      currencyCode: "COP",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/budget");
+  });
+
+  it("returns accessible field feedback for invalid planned amounts without internal jargon", async () => {
+    const result = await createBudgetLineAction(
+      initialBudgetLineActionState,
+      budgetLineForm({ plannedAmount: "001" }),
+    );
+
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { plannedAmount: expect.stringMatching(/monto/) },
+    });
+    expect(result.message).not.toMatch(/unidades menores|minor units/i);
+    expect(mocks.upsertPlannedBudgetLineForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("returns planned amount feedback before writes for non-string FormData values", async () => {
+    const formData = budgetLineForm();
+    formData.set("plannedAmount", new Blob(["123.45"]));
+
+    const result = await createBudgetLineAction(initialBudgetLineActionState, formData);
+
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { plannedAmount: expect.stringMatching(/monto/) },
+    });
+    expect(mocks.upsertPlannedBudgetLineForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["EURO", "Usa un código de moneda de tres letras."],
+    ["EUR", "Selecciona una moneda soportada."],
+  ])("returns planned-line currency feedback for %s", async (currencyCode, message) => {
+    const result = await createBudgetLineAction(
+      initialBudgetLineActionState,
+      budgetLineForm({ currencyCode }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message,
+      fieldErrors: { currencyCode: message },
+    });
+    expect(mocks.upsertPlannedBudgetLineForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["periodId", "Selecciona un periodo propio válido.", (): void => {
+      mocks.findPeriodForOwner.mockResolvedValueOnce(null as never);
+    }],
+    ["categoryId", "Selecciona una categoría propia válida.", (): void => {
+      mocks.findCategoryForOwner.mockResolvedValueOnce(null as never);
+    }],
+    ["categoryId", "Selecciona una categoría activa.", (): void => {
+      mocks.findCategoryForOwner.mockResolvedValueOnce({
+        id: "20000000-0000-0000-0000-000000000001",
+        userId: mocks.owner.userId,
+        type: "EXPENSE" as const,
+        name: "Groceries",
+        sortOrder: 0,
+        archivedAt: "2026-04-01T00:00:00.000Z",
+      } as never);
+    }],
+    ["currencyCode", "Usa la misma moneda del periodo seleccionado.", (): void => undefined],
+  ] as const)("returns planned-line validation feedback for %s", async (field, message, arrange) => {
+    arrange();
+
+    const result = await createBudgetLineAction(
+      initialBudgetLineActionState,
+      budgetLineForm(field === "currencyCode" ? { currencyCode: "USD" } : {}),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message,
+      fieldErrors: { [field]: message },
+    });
+    expect(mocks.upsertPlannedBudgetLineForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rethrows unexpected planned-line repository failures without revalidating", async () => {
+    mocks.upsertPlannedBudgetLineForOwner.mockRejectedValueOnce(new Error("planned-line write failed"));
+
+    await expect(
+      createBudgetLineAction(initialBudgetLineActionState, budgetLineForm()),
+    ).rejects.toThrow("planned-line write failed");
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

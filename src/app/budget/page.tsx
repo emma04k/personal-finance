@@ -5,6 +5,7 @@ import {
 } from "@/modules/auth/application/ownership-context";
 import { requireCurrentOwnershipContext } from "@/modules/auth/application/current-ownership-context";
 import type {
+  OwnedBudgetLine,
   OwnedCategory,
   OwnedPeriod,
 } from "@/modules/budget/application/owned-planning-repository";
@@ -12,8 +13,10 @@ import {
   DEFAULT_BUDGET_TIME_ZONE,
   buildCurrentMonthStartForTimeZone,
 } from "@/modules/budget/application/default-budget-period";
+import { formatCurrencyMinorUnits } from "@/modules/finance/application/currency-amount";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
+import { BudgetLineForm } from "./budget-line-form";
 import { BudgetCategoryForm } from "./budget-category-form";
 import { BudgetPeriodForm } from "./budget-period-form";
 
@@ -22,6 +25,8 @@ type BudgetPlanningState =
       status: "authenticated";
       periods: readonly OwnedPeriod[];
       categories: readonly OwnedCategory[];
+      plannedBudgetLines: readonly OwnedBudgetLine[];
+      currentPeriod: OwnedPeriod | undefined;
     }>
   | Readonly<{ status: "authentication-required" }>;
 
@@ -49,7 +54,12 @@ export default async function BudgetPage() {
 
   return (
     <AppShell activeHref="/budget">
-      <BudgetPlanningContent periods={state.periods} categories={state.categories} />
+      <BudgetPlanningContent
+        periods={state.periods}
+        categories={state.categories}
+        plannedBudgetLines={state.plannedBudgetLines}
+        currentPeriod={state.currentPeriod}
+      />
     </AppShell>
   );
 }
@@ -62,8 +72,16 @@ async function loadBudgetPlanningState(): Promise<BudgetPlanningState> {
       repository.listPeriodsForOwner(owner.userId),
       repository.listActiveCategoriesForOwner(owner.userId),
     ]);
+    const currentMonthStart = buildCurrentMonthStartForTimeZone({
+      now: new Date(),
+      timeZone: DEFAULT_BUDGET_TIME_ZONE,
+    });
+    const currentPeriod = periods.find((period) => period.monthStart === currentMonthStart) ?? periods[0];
+    const plannedBudgetLines = currentPeriod
+      ? await repository.listPlannedBudgetLinesForOwnerPeriod(owner.userId, currentPeriod.id)
+      : [];
 
-    return { status: "authenticated", periods, categories };
+    return { status: "authenticated", periods, categories, plannedBudgetLines, currentPeriod };
   } catch (error) {
     if (
       error instanceof AuthenticationRequiredError ||
@@ -78,10 +96,14 @@ async function loadBudgetPlanningState(): Promise<BudgetPlanningState> {
 
 function BudgetPlanningContent({
   categories,
+  currentPeriod,
+  plannedBudgetLines,
   periods,
 }: {
   readonly periods: readonly OwnedPeriod[];
   readonly categories: readonly OwnedCategory[];
+  readonly plannedBudgetLines: readonly OwnedBudgetLine[];
+  readonly currentPeriod: OwnedPeriod | undefined;
 }) {
   const currentMonthStart = buildCurrentMonthStartForTimeZone({
     now: new Date(),
@@ -89,6 +111,7 @@ function BudgetPlanningContent({
   });
   const hasPeriods = periods.length > 0;
   const hasCategories = categories.some((category) => category.archivedAt === null);
+  const state = { currentPeriod };
 
   return (
     <section className="budget-page" aria-labelledby="budget-heading">
@@ -130,6 +153,25 @@ function BudgetPlanningContent({
         <BudgetCategoryForm />
       </section>
 
+      <section
+        className="budget-panel"
+        aria-labelledby="budget-line-form-heading"
+        data-current-period-id={currentPeriod?.id ?? ""}
+      >
+        <div>
+          <p className="eyebrow">Montos planeados</p>
+          <h2 id="budget-line-form-heading">Agregar o actualizar monto</h2>
+          <p>
+            Elige un mes y una categoría activa para guardar el monto que quieres planear.
+          </p>
+        </div>
+
+        <BudgetLineForm
+          categories={categories}
+          currentPeriod={state.currentPeriod}
+        />
+      </section>
+
       <section className="budget-status-grid" aria-label="Estado de planificación">
         <article className="summary-card">
           <p>Periodos</p>
@@ -151,7 +193,7 @@ function BudgetPlanningContent({
         <div>
           <p className="eyebrow">Categorías activas</p>
           <h2 id="active-categories-heading">Lista de categorías</h2>
-          <p>Solo se muestran categorías activas cargadas para el dueño autenticado.</p>
+          <p>Solo se muestran tus categorías activas para este presupuesto.</p>
         </div>
 
         {hasCategories ? (
@@ -166,6 +208,32 @@ function BudgetPlanningContent({
         ) : (
           <p className="category-empty" role="status">
             Crea tu primera categoría para organizar el presupuesto.
+          </p>
+        )}
+      </section>
+
+      <section className="budget-panel" aria-labelledby="planned-lines-heading">
+        <div>
+          <p className="eyebrow">Mes actual</p>
+          <h2 id="planned-lines-heading">Líneas planeadas</h2>
+          <p>
+            Muestra los montos planeados del periodo mensual seleccionado.
+          </p>
+        </div>
+
+        {plannedBudgetLines.length > 0 ? (
+          <ul className="planned-line-list" aria-label="Líneas planeadas del mes actual">
+            {plannedBudgetLines.map((budgetLine) => (
+              <li key={budgetLine.id} className="planned-line-list-item">
+                <span>{budgetLine.categoryName}</span>
+                <strong>{formatBudgetLineAmount(budgetLine.plannedAmountMinor, budgetLine.currencyCode)}</strong>
+                <small>{formatCategoryTypeLabel(budgetLine.categoryType)}</small>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="category-empty" role="status">
+            Aún no hay montos planeados para el mes actual.
           </p>
         )}
       </section>
@@ -189,6 +257,10 @@ function BudgetPlanningContent({
 
 function formatPeriodLabel(period: OwnedPeriod) {
   return `${period.monthStart} · ${period.currencyCode} · ${period.timeZone}`;
+}
+
+function formatBudgetLineAmount(plannedAmountMinor: string, currencyCode: string) {
+  return formatCurrencyMinorUnits(plannedAmountMinor, currencyCode);
 }
 
 function formatCategoryTypeLabel(type: OwnedCategory["type"]) {
