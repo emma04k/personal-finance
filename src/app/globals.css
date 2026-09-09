@@ -586,29 +586,34 @@ h2 {
   box-shadow: var(--shadow-card);
 }
 
-.budget-period-form {
+.budget-period-form,
+.budget-category-form {
   display: grid;
   gap: 10px;
 }
 
-.budget-period-form label {
+.budget-period-form label,
+.budget-category-form label {
   font-size: 0.9rem;
   font-weight: 750;
 }
 
-.budget-period-form .field-error {
+.budget-period-form .field-error,
+.budget-category-form .field-error {
   min-height: 1.35em;
   margin: -4px 0 4px;
   color: #b42318;
   font-size: 0.9rem;
 }
 
-.budget-period-form [aria-invalid="true"] {
+.budget-period-form [aria-invalid="true"],
+.budget-category-form [aria-invalid="true"] {
   border-color: #b42318;
   box-shadow: 0 0 0 1px #b42318;
 }
 
-.budget-period-form .form-feedback {
+.budget-period-form .form-feedback,
+.budget-category-form .form-feedback {
   margin: 2px 0;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
@@ -616,16 +621,20 @@ h2 {
   font-weight: 700;
 }
 
-.budget-period-form .form-feedback-error {
+.budget-period-form .form-feedback-error,
+.budget-category-form .form-feedback-error {
   border-left: 4px solid #b42318;
 }
 
-.budget-period-form .form-feedback-success {
+.budget-period-form .form-feedback-success,
+.budget-category-form .form-feedback-success {
   border-left: 4px solid var(--primary);
 }
 
 .budget-period-form input,
-.budget-period-form select {
+.budget-period-form select,
+.budget-category-form input,
+.budget-category-form select {
   width: 100%;
   min-width: 0;
   min-height: 48px;
@@ -636,7 +645,8 @@ h2 {
   font-size: 16px;
 }
 
-.budget-period-form button {
+.budget-period-form button,
+.budget-category-form button {
   min-height: 48px;
   margin-top: 4px;
   padding: 10px 16px;
@@ -645,6 +655,24 @@ h2 {
   background: var(--primary);
   color: var(--surface);
   font-weight: 750;
+}
+
+.category-list {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.category-list-item {
+  min-width: 0;
+}
+
+.category-list-item span,
+.category-list-item small {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .budget-status-grid {

@@ -1,4 +1,6 @@
 import {
+  type CreateCategoryForOwnerInput,
+  DuplicateCategoryError,
   DuplicateMonthlyPeriodError,
   type CreatePeriodForOwnerInput,
   type OwnedCategory,
@@ -23,6 +25,7 @@ type PlanningPrismaClient = {
   readonly category: {
     readonly findMany: (args: never) => Promise<readonly PrismaCategoryRecord[]>;
     readonly findFirst: (args: never) => Promise<PrismaCategoryRecord | null>;
+    readonly create: (args: never) => Promise<PrismaCategoryRecord>;
   };
 };
 
@@ -89,6 +92,23 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
 
     return record ? toOwnedCategory(record) : null;
   }
+
+  async createCategoryForOwner(ownerUserId: string, input: CreateCategoryForOwnerInput) {
+    try {
+      const record = await createCategory(this.db.category, {
+        data: {
+          userId: ownerUserId,
+          type: input.type,
+          name: input.name,
+        },
+      });
+
+      return toOwnedCategory(record);
+    } catch (error) {
+      if (isPrismaOwnerTypeNameUniqueConstraintError(error)) throw new DuplicateCategoryError();
+      throw error;
+    }
+  }
 }
 
 function findManyPeriods(
@@ -130,6 +150,25 @@ function isPrismaOwnerMonthUniqueConstraintError(error: unknown) {
     && target.includes("monthStart");
 }
 
+function isPrismaOwnerTypeNameUniqueConstraintError(error: unknown) {
+  if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "P2002") {
+    return false;
+  }
+
+  const target = "meta" in error
+    && typeof error.meta === "object"
+    && error.meta !== null
+    && "target" in error.meta
+    ? error.meta.target
+    : null;
+
+  return Array.isArray(target)
+    && target.length === 3
+    && target.includes("userId")
+    && target.includes("type")
+    && target.includes("name");
+}
+
 function findManyCategories(
   category: PlanningPrismaClient["category"],
   args: Record<string, unknown>,
@@ -142,6 +181,13 @@ function findFirstCategory(
   args: Record<string, unknown>,
 ) {
   return (category.findFirst as (args: Record<string, unknown>) => Promise<PrismaCategoryRecord | null>)(args);
+}
+
+function createCategory(
+  category: PlanningPrismaClient["category"],
+  args: Record<string, unknown>,
+) {
+  return (category.create as (args: Record<string, unknown>) => Promise<PrismaCategoryRecord>)(args);
 }
 
 function toDateOnly(value: Date | string) {

@@ -14,6 +14,7 @@ import {
 } from "@/modules/budget/application/default-budget-period";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
+import { BudgetCategoryForm } from "./budget-category-form";
 import { BudgetPeriodForm } from "./budget-period-form";
 
 type BudgetPlanningState =
@@ -87,7 +88,7 @@ function BudgetPlanningContent({
     timeZone: DEFAULT_BUDGET_TIME_ZONE,
   });
   const hasPeriods = periods.length > 0;
-  const hasCategories = categories.length > 0;
+  const hasCategories = categories.some((category) => category.archivedAt === null);
 
   return (
     <section className="budget-page" aria-labelledby="budget-heading">
@@ -117,6 +118,18 @@ function BudgetPlanningContent({
         <BudgetPeriodForm currentMonthStart={currentMonthStart} defaultTimeZone={DEFAULT_BUDGET_TIME_ZONE} />
       </section>
 
+      <section className="budget-panel" aria-labelledby="create-category-heading">
+        <div>
+          <p className="eyebrow">Nueva categoría</p>
+          <h2 id="create-category-heading">Crear categoría</h2>
+          <p>
+            Usa categorías propias y activas para preparar las próximas líneas planeadas.
+          </p>
+        </div>
+
+        <BudgetCategoryForm />
+      </section>
+
       <section className="budget-status-grid" aria-label="Estado de planificación">
         <article className="summary-card">
           <p>Periodos</p>
@@ -128,10 +141,33 @@ function BudgetPlanningContent({
           <strong>{hasCategories ? categories.length : "Sin datos"}</strong>
           <small>
             {hasCategories
-              ? "Listas para líneas planeadas en el siguiente slice."
+              ? "Listas para preparar líneas planeadas."
               : "Aún no hay categorías activas para presupuestar."}
           </small>
         </article>
+      </section>
+
+      <section className="budget-panel" aria-labelledby="active-categories-heading">
+        <div>
+          <p className="eyebrow">Categorías activas</p>
+          <h2 id="active-categories-heading">Lista de categorías</h2>
+          <p>Solo se muestran categorías activas cargadas para el dueño autenticado.</p>
+        </div>
+
+        {hasCategories ? (
+          <ul className="category-list" aria-label="Categorías activas">
+            {categories.map((category) => (
+              <li key={category.id} className="category-list-item">
+                <span>{category.name}</span>
+                <small>{formatCategoryTypeLabel(category.type)}</small>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="category-empty" role="status">
+            Crea tu primera categoría para organizar el presupuesto.
+          </p>
+        )}
       </section>
 
       {!hasPeriods || !hasCategories ? (
@@ -153,4 +189,17 @@ function BudgetPlanningContent({
 
 function formatPeriodLabel(period: OwnedPeriod) {
   return `${period.monthStart} · ${period.currencyCode} · ${period.timeZone}`;
+}
+
+function formatCategoryTypeLabel(type: OwnedCategory["type"]) {
+  switch (type) {
+    case "INCOME":
+      return "Ingreso";
+    case "EXPENSE":
+      return "Gasto";
+    case "SAVINGS":
+      return "Ahorro";
+    case "DEBT_PAYMENT":
+      return "Pago de deuda";
+  }
 }
