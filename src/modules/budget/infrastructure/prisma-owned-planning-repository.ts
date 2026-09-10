@@ -1,5 +1,6 @@
 import {
   type CreateCategoryForOwnerInput,
+  type CreateTransactionForOwnerInput,
   DuplicateCategoryError,
   DuplicateMonthlyPeriodError,
   type CreatePeriodForOwnerInput,
@@ -7,6 +8,7 @@ import {
   type OwnedCategory,
   type OwnedPeriod,
   type OwnedPlanningRepository,
+  type OwnedTransaction,
   type UpsertPlannedBudgetLineForOwnerInput,
 } from "@/modules/budget/application/owned-planning-repository";
 
@@ -20,6 +22,14 @@ type PrismaCategoryRecord = Omit<OwnedCategory, "archivedAt"> & {
 
 type PrismaBudgetLineRecord = Omit<OwnedBudgetLine, "plannedAmountMinor" | "categoryName" | "categoryType"> & {
   readonly plannedAmountMinor: bigint | number | string;
+  readonly category: Pick<OwnedCategory, "name" | "type">;
+};
+
+type PrismaTransactionRecord = Omit<OwnedTransaction,
+  "amountMinor" | "categoryName" | "categoryType" | "occurredOn"
+> & {
+  readonly amountMinor: bigint | number | string;
+  readonly occurredOn: Date | string;
   readonly category: Pick<OwnedCategory, "name" | "type">;
 };
 
@@ -43,9 +53,14 @@ type PlanningPrismaClient = {
     readonly findFirst: PrismaDelegateMethod;
     readonly update: PrismaDelegateMethod;
   };
+  readonly transaction?: {
+    readonly findMany: PrismaDelegateMethod;
+    readonly create: PrismaDelegateMethod;
+  };
 };
 
 type BudgetLinePrismaDelegate = NonNullable<PlanningPrismaClient["budgetLine"]>;
+type TransactionPrismaDelegate = NonNullable<PlanningPrismaClient["transaction"]>;
 
 export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
   constructor(private readonly db: PlanningPrismaClient) {}
@@ -201,6 +216,39 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
       return toOwnedBudgetLine(updated);
     }
   }
+
+  async listTransactionsForOwnerPeriod(ownerUserId: string, periodId: string) {
+    const transaction = transactionDelegate(this.db);
+    const records = await findManyTransactions(transaction, {
+      where: { userId: ownerUserId, periodId, category: { isNot: null } },
+      include: { category: { select: { name: true, type: true } } },
+      orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+    });
+
+    return records.map(toOwnedTransaction);
+  }
+
+  async createTransactionForOwner(
+    ownerUserId: string,
+    input: CreateTransactionForOwnerInput,
+  ) {
+    const transaction = transactionDelegate(this.db);
+    const record = await createTransaction(transaction, {
+      data: {
+        userId: ownerUserId,
+        periodId: input.periodId,
+        categoryId: input.categoryId,
+        direction: input.direction,
+        amountMinor: BigInt(input.amountMinor),
+        currencyCode: input.currencyCode,
+        occurredOn: toDateOnlyDate(input.occurredOn),
+        description: input.description,
+      },
+      include: { category: { select: { name: true, type: true } } },
+    });
+
+    return toOwnedTransaction(record);
+  }
 }
 
 function findManyPeriods(
@@ -291,6 +339,11 @@ function budgetLineDelegate(db: PlanningPrismaClient): BudgetLinePrismaDelegate 
   return db.budgetLine;
 }
 
+function transactionDelegate(db: PlanningPrismaClient): TransactionPrismaDelegate {
+  if (!db.transaction) throw new Error("Transaction delegate is required for actual transactions.");
+  return db.transaction;
+}
+
 function findFirstCategory(
   category: PlanningPrismaClient["category"],
   args: Record<string, unknown>,
@@ -350,12 +403,34 @@ function updateBudgetLine(
   ) => Promise<PrismaBudgetLineRecord>)(args);
 }
 
+function findManyTransactions(
+  transaction: TransactionPrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (transaction.findMany as (
+    args: Record<string, unknown>
+  ) => Promise<readonly PrismaTransactionRecord[]>)(args);
+}
+
+function createTransaction(
+  transaction: TransactionPrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (transaction.create as (
+    args: Record<string, unknown>
+  ) => Promise<PrismaTransactionRecord>)(args);
+}
+
 function toDateOnly(value: Date | string) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   return value.slice(0, 10);
 }
 
 function toMonthStartDate(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function toDateOnlyDate(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
 }
 
@@ -389,5 +464,21 @@ function toOwnedBudgetLine(record: PrismaBudgetLineRecord): OwnedBudgetLine {
     categoryType: record.category.type,
     plannedAmountMinor: record.plannedAmountMinor.toString(),
     currencyCode: record.currencyCode,
+  };
+}
+
+function toOwnedTransaction(record: PrismaTransactionRecord): OwnedTransaction {
+  return {
+    id: record.id,
+    userId: record.userId,
+    periodId: record.periodId,
+    categoryId: record.categoryId,
+    categoryName: record.category.name,
+    categoryType: record.category.type,
+    direction: record.direction,
+    amountMinor: record.amountMinor.toString(),
+    currencyCode: record.currencyCode,
+    occurredOn: toDateOnly(record.occurredOn),
+    description: record.description,
   };
 }

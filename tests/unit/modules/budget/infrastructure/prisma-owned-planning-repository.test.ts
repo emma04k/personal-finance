@@ -585,4 +585,130 @@ describe("Prisma owner-scoped planning repository", () => {
       repository.createCategoryForOwner(ownerUserId, { type: "EXPENSE", name: "Groceries" }),
     ).rejects.toBe(uniqueError);
   });
+
+  it("lists actual transactions for one owner period with category labels", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        id: "40000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+        categoryId: "20000000-0000-0000-0000-000000000001",
+        direction: "OUTFLOW" as const,
+        amountMinor: BigInt("12345"),
+        currencyCode: "COP",
+        occurredOn: new Date("2026-03-15T00:00:00.000Z"),
+        description: "Compra semanal",
+        category: { name: "Groceries", type: "EXPENSE" as const },
+      },
+    ]);
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      transaction: { findMany, create: vi.fn() } as never,
+    });
+
+    await expect(
+      repository.listTransactionsForOwnerPeriod(
+        ownerUserId,
+        "10000000-0000-0000-0000-000000000001",
+      ),
+    ).resolves.toEqual([
+      {
+        id: "40000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+        categoryId: "20000000-0000-0000-0000-000000000001",
+        categoryName: "Groceries",
+        categoryType: "EXPENSE",
+        direction: "OUTFLOW",
+        amountMinor: "12345",
+        currencyCode: "COP",
+        occurredOn: "2026-03-15",
+        description: "Compra semanal",
+      },
+    ]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+        category: { isNot: null },
+      },
+      include: { category: { select: { name: true, type: true } } },
+      orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+    });
+  });
+
+  it("filters transaction lists to categorized records before mapping category labels", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      transaction: { findMany, create: vi.fn() } as never,
+    });
+
+    await expect(
+      repository.listTransactionsForOwnerPeriod(
+        ownerUserId,
+        "10000000-0000-0000-0000-000000000001",
+      ),
+    ).resolves.toEqual([]);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+        category: { isNot: null },
+      }),
+    }));
+  });
+
+  it("creates actual transactions with owner-scoped period and category data", async () => {
+    const created = {
+      id: "40000000-0000-0000-0000-000000000001",
+      userId: ownerUserId,
+      periodId: "10000000-0000-0000-0000-000000000001",
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      direction: "OUTFLOW" as const,
+      amountMinor: BigInt("12345"),
+      currencyCode: "COP",
+      occurredOn: new Date("2026-03-15T00:00:00.000Z"),
+      description: "Compra semanal",
+      category: { name: "Groceries", type: "EXPENSE" as const },
+    };
+    const create = vi.fn().mockResolvedValue(created);
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      transaction: { findMany: vi.fn(), create } as never,
+    });
+
+    await expect(
+      repository.createTransactionForOwner(ownerUserId, {
+        periodId: created.periodId,
+        categoryId: created.categoryId,
+        direction: "OUTFLOW",
+        amountMinor: "12345",
+        currencyCode: "COP",
+        occurredOn: "2026-03-15",
+        description: "Compra semanal",
+      }),
+    ).resolves.toMatchObject({
+      userId: ownerUserId,
+      categoryName: "Groceries",
+      amountMinor: "12345",
+      occurredOn: "2026-03-15",
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        userId: ownerUserId,
+        periodId: created.periodId,
+        categoryId: created.categoryId,
+        direction: "OUTFLOW",
+        amountMinor: BigInt("12345"),
+        currencyCode: "COP",
+        occurredOn: new Date("2026-03-15T00:00:00.000Z"),
+        description: "Compra semanal",
+      },
+      include: { category: { select: { name: true, type: true } } },
+    });
+  });
 });

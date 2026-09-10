@@ -588,14 +588,16 @@ h2 {
 
 .budget-period-form,
 .budget-category-form,
-.budget-line-form {
+.budget-line-form,
+.budget-transaction-form {
   display: grid;
   gap: 10px;
 }
 
 .budget-period-form label,
 .budget-category-form label,
-.budget-line-form label {
+.budget-line-form label,
+.budget-transaction-form label {
   font-size: 0.9rem;
   font-weight: 750;
 }
@@ -603,9 +605,11 @@ h2 {
 .budget-period-form .field-help,
 .budget-category-form .field-help,
 .budget-line-form .field-help,
+.budget-transaction-form .field-help,
 .budget-period-form .field-error,
 .budget-category-form .field-error,
-.budget-line-form .field-error {
+.budget-line-form .field-error,
+.budget-transaction-form .field-error {
   min-height: 1.35em;
   margin: -4px 0 4px;
   font-size: 0.9rem;
@@ -613,26 +617,30 @@ h2 {
 
 .budget-period-form .field-help,
 .budget-category-form .field-help,
-.budget-line-form .field-help {
+.budget-line-form .field-help,
+.budget-transaction-form .field-help {
   color: var(--text-muted);
 }
 
 .budget-period-form .field-error,
 .budget-category-form .field-error,
-.budget-line-form .field-error {
+.budget-line-form .field-error,
+.budget-transaction-form .field-error {
   color: #b42318;
 }
 
 .budget-period-form [aria-invalid="true"],
 .budget-category-form [aria-invalid="true"],
-.budget-line-form [aria-invalid="true"] {
+.budget-line-form [aria-invalid="true"],
+.budget-transaction-form [aria-invalid="true"] {
   border-color: #b42318;
   box-shadow: 0 0 0 1px #b42318;
 }
 
 .budget-period-form .form-feedback,
 .budget-category-form .form-feedback,
-.budget-line-form .form-feedback {
+.budget-line-form .form-feedback,
+.budget-transaction-form .form-feedback {
   margin: 2px 0;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
@@ -642,13 +650,15 @@ h2 {
 
 .budget-period-form .form-feedback-error,
 .budget-category-form .form-feedback-error,
-.budget-line-form .form-feedback-error {
+.budget-line-form .form-feedback-error,
+.budget-transaction-form .form-feedback-error {
   border-left: 4px solid #b42318;
 }
 
 .budget-period-form .form-feedback-success,
 .budget-category-form .form-feedback-success,
-.budget-line-form .form-feedback-success {
+.budget-line-form .form-feedback-success,
+.budget-transaction-form .form-feedback-success {
   border-left: 4px solid var(--primary);
 }
 
@@ -657,7 +667,9 @@ h2 {
 .budget-category-form input,
 .budget-category-form select,
 .budget-line-form input,
-.budget-line-form select {
+.budget-line-form select,
+.budget-transaction-form input,
+.budget-transaction-form select {
   width: 100%;
   min-width: 0;
   min-height: 48px;
@@ -674,16 +686,20 @@ h2 {
 .budget-category-form select:disabled,
 .budget-line-form input:disabled,
 .budget-line-form select:disabled,
+.budget-transaction-form input:disabled,
+.budget-transaction-form select:disabled,
 .budget-period-form button:disabled,
 .budget-category-form button:disabled,
-.budget-line-form button:disabled {
+.budget-line-form button:disabled,
+.budget-transaction-form button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
 .budget-period-form button,
 .budget-category-form button,
-.budget-line-form button {
+.budget-line-form button,
+.budget-transaction-form button {
   min-height: 48px;
   margin-top: 4px;
   padding: 10px 16px;
@@ -694,7 +710,9 @@ h2 {
   font-weight: 750;
 }
 
-.category-list {
+.category-list,
+.planned-line-list,
+.transaction-list {
   display: grid;
   gap: 10px;
   padding: 0;
@@ -702,37 +720,30 @@ h2 {
   list-style: none;
 }
 
-.category-list-item {
+.category-list-item,
+.planned-line-list-item,
+.transaction-list-item {
   min-width: 0;
 }
 
-.category-list-item span,
-.category-list-item small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.planned-line-list {
-  display: grid;
-  gap: 10px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.planned-line-list-item {
+.planned-line-list-item,
+.transaction-list-item {
   display: grid;
   gap: 4px;
-  min-width: 0;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-muted);
 }
 
+.category-list-item span,
+.category-list-item small,
 .planned-line-list-item span,
 .planned-line-list-item strong,
-.planned-line-list-item small {
+.planned-line-list-item small,
+.transaction-list-item span,
+.transaction-list-item strong,
+.transaction-list-item small {
   min-width: 0;
   overflow-wrap: anywhere;
 }
