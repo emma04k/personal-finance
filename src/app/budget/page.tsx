@@ -14,7 +14,15 @@ import {
   DEFAULT_BUDGET_TIME_ZONE,
   buildCurrentMonthStartForTimeZone,
 } from "@/modules/budget/application/default-budget-period";
+import type {
+  AggregateMoney,
+  BudgetSummary,
+  MaybeMoney,
+  MaybeRate,
+} from "@/modules/budget/domain/budget-summary";
+import { buildMonthlyBudgetSummary } from "@/modules/budget/application/monthly-budget-summary-workflow";
 import { formatCurrencyMinorUnits } from "@/modules/finance/application/currency-amount";
+import type { Money } from "@/modules/finance/domain/money";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
 import { BudgetLineForm } from "./budget-line-form";
@@ -120,6 +128,9 @@ function BudgetPlanningContent({
   });
   const hasPeriods = periods.length > 0;
   const hasCategories = categories.some((category) => category.archivedAt === null);
+  const monthlySummary = currentPeriod
+    ? buildMonthlyBudgetSummary({ period: currentPeriod, plannedBudgetLines, transactions })
+    : null;
   const state = { currentPeriod };
 
   return (
@@ -137,6 +148,8 @@ function BudgetPlanningContent({
           {hasPeriods ? `${periods.length} periodo${periods.length === 1 ? "" : "s"}` : "Sin periodo"}
         </span>
       </div>
+
+      <MonthlySummarySection currentPeriod={currentPeriod} summaryResult={monthlySummary} />
 
       <section className="budget-panel" aria-labelledby="create-period-heading">
         <div>
@@ -307,6 +320,155 @@ function BudgetPlanningContent({
       ) : null}
     </section>
   );
+}
+
+function MonthlySummarySection({
+  currentPeriod,
+  summaryResult,
+}: {
+  readonly currentPeriod: OwnedPeriod | undefined;
+  readonly summaryResult: ReturnType<typeof buildMonthlyBudgetSummary> | null;
+}) {
+  if (!currentPeriod) {
+    return (
+      <section className="budget-panel" aria-labelledby="monthly-summary-heading">
+        <div>
+          <p className="eyebrow">Mes actual</p>
+          <h2 id="monthly-summary-heading">Resumen mensual</h2>
+          <p>No hay un periodo mensual activo para calcular el resumen.</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (summaryResult === null || !summaryResult.ok) {
+    return (
+      <section className="budget-panel" aria-labelledby="monthly-summary-heading">
+        <div>
+          <p className="eyebrow">Mes actual</p>
+          <h2 id="monthly-summary-heading">Resumen mensual</h2>
+          <p role="status">
+            No se pudo calcular el resumen con los montos del periodo seleccionado.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const summary: BudgetSummary = summaryResult.value;
+
+  return (
+    <section className="budget-panel" aria-labelledby="monthly-summary-heading">
+      <div>
+        <p className="eyebrow">Mes actual</p>
+        <h2 id="monthly-summary-heading">Resumen mensual</h2>
+        <p>
+          Combina líneas planeadas y transacciones del periodo seleccionado con datos
+          autorizados para este presupuesto.
+        </p>
+      </div>
+
+      <section className="budget-status-grid" aria-label="Indicadores del resumen mensual">
+        <article className="summary-card">
+          <p>Saldo disponible</p>
+          <strong>{formatMoney(summary.availableBalance)}</strong>
+          <small>Ingresos menos gastos, deuda y ahorro del mes.</small>
+        </article>
+        <article className="summary-card">
+          <p>Salida total</p>
+          <strong>{formatMoney(summary.totalCashOutflow.amount)}</strong>
+          <small>{formatAggregateDetail(summary.totalCashOutflow)}</small>
+        </article>
+      </section>
+
+      <ul className="planned-line-list" aria-label="Grupos planeados y reales del mes">
+        <MonthlySummaryGroup label="Ingresos" aggregate={summary.income} />
+        <MonthlySummaryGroup label="Gastos" aggregate={summary.consumptionExpenses} />
+        <MonthlySummaryGroup label="Pagos de deuda" aggregate={summary.debtPayments} />
+        <MonthlySummaryGroup label="Ahorro" aggregate={summary.savingsAllocations} />
+      </ul>
+
+      <ul className="planned-line-list" aria-label="Variaciones y tasas del mes">
+        <SummaryMetric label="Variación de ingresos" value={formatMaybeMoney(summary.incomeVariance)} />
+        <SummaryMetric label="Variación de egresos" value={formatMaybeMoney(summary.expenseVariance)} />
+        <SummaryMetric label="Tasa de salida total" value={formatMaybeRate(summary.totalOutflowRate)} />
+        <SummaryMetric label="Tasa de ahorro" value={formatMaybeRate(summary.savingsRate)} />
+      </ul>
+    </section>
+  );
+}
+
+function MonthlySummaryGroup({
+  aggregate,
+  label,
+}: {
+  readonly label: string;
+  readonly aggregate: AggregateMoney;
+}) {
+  return (
+    <li className="planned-line-list-item">
+      <span>{label}</span>
+      <strong>{formatMoney(aggregate.amount)}</strong>
+      <small>{formatAggregateDetail(aggregate)}</small>
+    </li>
+  );
+}
+
+function SummaryMetric({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <li className="planned-line-list-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </li>
+  );
+}
+
+function formatAggregateDetail(aggregate: AggregateMoney) {
+  const completeness = formatCompletenessLabel(aggregate.completeness);
+  return aggregate.plannedValuesUsed
+    ? `${completeness} · Usa valores planeados donde falta el real.`
+    : completeness;
+}
+
+function formatCompletenessLabel(completeness: AggregateMoney["completeness"]) {
+  switch (completeness) {
+    case "complete":
+      return "Completo";
+    case "partial":
+      return "Parcial";
+    case "missing":
+      return "Sin datos";
+  }
+}
+
+function formatMaybeMoney(value: MaybeMoney) {
+  return value.available ? formatMoney(value.value) : formatRateUnavailableReason(value.reason);
+}
+
+function formatMaybeRate(value: MaybeRate) {
+  if (!value.available) return formatRateUnavailableReason(value.reason);
+  const basisPoints = (value.ratio.numerator * BigInt("10000") + value.ratio.denominator / BigInt("2"))
+    / value.ratio.denominator;
+  const whole = basisPoints / BigInt("100");
+  const fraction = (basisPoints % BigInt("100")).toString().padStart(2, "0");
+  return `${whole.toString()}.${fraction}%`;
+}
+
+function formatRateUnavailableReason(reason: "INCOME_MISSING" | "ZERO_INCOME" | "PARTIAL_DATA" | "ZERO_PLANNED") {
+  switch (reason) {
+    case "INCOME_MISSING":
+      return "No disponible: faltan ingresos.";
+    case "ZERO_INCOME":
+      return "No disponible: ingreso en cero.";
+    case "PARTIAL_DATA":
+      return "No disponible: datos parciales.";
+    case "ZERO_PLANNED":
+      return "No disponible: planeado en cero.";
+  }
+}
+
+function formatMoney(value: Money) {
+  return formatCurrencyMinorUnits(value.minorUnits.toString(), value.currency);
 }
 
 function formatPeriodLabel(period: OwnedPeriod) {
