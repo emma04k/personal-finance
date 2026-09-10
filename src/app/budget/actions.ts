@@ -14,6 +14,10 @@ import {
   type PlannedBudgetLineError,
   upsertPlannedBudgetLine,
 } from "@/modules/budget/application/planned-budget-line-workflow";
+import {
+  createPeriodTransaction,
+  type PeriodTransactionError,
+} from "@/modules/budget/application/period-transaction-workflow";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
 import type {
@@ -28,6 +32,10 @@ import type {
   BudgetLineActionField,
   BudgetLineActionState,
 } from "./budget-line-action-state";
+import type {
+  BudgetTransactionActionField,
+  BudgetTransactionActionState,
+} from "./budget-transaction-action-state";
 
 export async function createBudgetPeriodAction(
   previousState: BudgetPeriodActionState,
@@ -114,6 +122,37 @@ export async function createBudgetLineAction(
   };
 }
 
+export async function createBudgetTransactionAction(
+  previousState: BudgetTransactionActionState,
+  formData: FormData,
+): Promise<BudgetTransactionActionState> {
+  void previousState;
+
+  const owner = await requireCurrentOwnershipContext();
+  const repository = new PrismaOwnedPlanningRepository(prisma);
+  const result = await createPeriodTransaction({
+    owner,
+    repository,
+    input: {
+      periodId: stringField(formData, "periodId"),
+      categoryId: stringField(formData, "categoryId"),
+      amount: stringField(formData, "amount"),
+      currencyCode: stringField(formData, "currencyCode"),
+      occurredOn: stringField(formData, "occurredOn"),
+      description: stringField(formData, "description"),
+    },
+  });
+
+  if (!result.ok) return transactionErrorState(result.error);
+
+  revalidatePath("/budget");
+  return {
+    status: "success",
+    message: "Transacción registrada.",
+    fieldErrors: {},
+  };
+}
+
 function periodErrorState(error: MonthlyPlanningError): BudgetPeriodActionState {
   switch (error.code) {
     case "INVALID_MONTH_START":
@@ -189,6 +228,46 @@ function budgetLineValidationError(
   field: BudgetLineActionField,
   message: string,
 ): BudgetLineActionState {
+  return {
+    status: "error",
+    message,
+    fieldErrors: { [field]: message },
+  };
+}
+
+function transactionErrorState(error: PeriodTransactionError): BudgetTransactionActionState {
+  switch (error.code) {
+    case "INVALID_TRANSACTION_AMOUNT":
+      return transactionValidationError("amount", "Usa un monto válido con los decimales permitidos para la moneda.");
+    case "PERIOD_NOT_FOUND":
+      return transactionValidationError("periodId", "Selecciona un periodo propio válido.");
+    case "CATEGORY_NOT_FOUND":
+      return transactionValidationError("categoryId", "Selecciona una categoría propia válida.");
+    case "CATEGORY_NOT_ACTIVE":
+      return transactionValidationError("categoryId", "Selecciona una categoría activa.");
+    case "INVALID_CATEGORY_TYPE":
+      return transactionValidationError("categoryId", "Selecciona un tipo de categoría válido.");
+    case "INVALID_CURRENCY_CODE":
+      return transactionValidationError("currencyCode", "Usa un código de moneda de tres letras.");
+    case "UNSUPPORTED_CURRENCY":
+      return transactionValidationError("currencyCode", "Selecciona una moneda soportada.");
+    case "CURRENCY_MISMATCH":
+      return transactionValidationError("currencyCode", "Usa la misma moneda del periodo seleccionado.");
+    case "INVALID_OCCURRED_ON":
+      return transactionValidationError("occurredOn", "Usa una fecha válida.");
+    case "DATE_OUTSIDE_PERIOD":
+      return transactionValidationError("occurredOn", "Usa una fecha dentro del mes seleccionado.");
+    case "DESCRIPTION_REQUIRED":
+      return transactionValidationError("description", "Escribe una descripción breve.");
+    case "DESCRIPTION_TOO_LONG":
+      return transactionValidationError("description", "La descripción debe tener máximo 255 caracteres.");
+  }
+}
+
+function transactionValidationError(
+  field: BudgetTransactionActionField,
+  message: string,
+): BudgetTransactionActionState {
   return {
     status: "error",
     message,

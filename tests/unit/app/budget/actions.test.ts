@@ -55,6 +55,19 @@ const mocks = vi.hoisted(() => {
     plannedAmountMinor: input.plannedAmountMinor,
     currencyCode: input.currencyCode,
   }));
+  const createTransactionForOwner = vi.fn(async (_ownerUserId: string, input) => ({
+    id: "40000000-0000-0000-0000-000000000001",
+    userId: owner.userId,
+    periodId: input.periodId,
+    categoryId: input.categoryId,
+    categoryName: "Groceries",
+    categoryType: "EXPENSE" as const,
+    direction: input.direction,
+    amountMinor: input.amountMinor,
+    currencyCode: input.currencyCode,
+    occurredOn: input.occurredOn,
+    description: input.description,
+  }));
   const repository: Pick<
     OwnedPlanningRepository,
     | "findPeriodByMonthForOwner"
@@ -63,6 +76,7 @@ const mocks = vi.hoisted(() => {
     | "findPeriodForOwner"
     | "findCategoryForOwner"
     | "upsertPlannedBudgetLineForOwner"
+    | "createTransactionForOwner"
   > = {
     findPeriodByMonthForOwner,
     createPeriodForOwner,
@@ -70,6 +84,7 @@ const mocks = vi.hoisted(() => {
     findPeriodForOwner,
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
+    createTransactionForOwner,
   };
 
   return {
@@ -81,6 +96,7 @@ const mocks = vi.hoisted(() => {
     findPeriodForOwner,
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
+    createTransactionForOwner,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
     revalidatePath: vi.fn(),
   };
@@ -108,8 +124,10 @@ import {
   createBudgetLineAction,
   createBudgetCategoryAction,
   createBudgetPeriodAction,
+  createBudgetTransactionAction,
 } from "@/app/budget/actions";
 import { initialBudgetLineActionState } from "@/app/budget/budget-line-action-state";
+import { initialBudgetTransactionActionState } from "@/app/budget/budget-transaction-action-state";
 import { initialBudgetCategoryActionState } from "@/app/budget/budget-category-action-state";
 import { initialBudgetPeriodActionState } from "@/app/budget/budget-period-action-state";
 
@@ -135,6 +153,18 @@ function budgetLineForm(overrides: Partial<Record<"periodId" | "categoryId" | "p
   formData.set("categoryId", overrides.categoryId ?? "20000000-0000-0000-0000-000000000001");
   formData.set("plannedAmount", overrides.plannedAmount ?? "123.45");
   formData.set("currencyCode", overrides.currencyCode ?? "COP");
+  if (overrides.userId !== undefined) formData.set("userId", overrides.userId);
+  return formData;
+}
+
+function transactionForm(overrides: Partial<Record<"periodId" | "categoryId" | "amount" | "currencyCode" | "occurredOn" | "description" | "userId", string>> = {}) {
+  const formData = new FormData();
+  formData.set("periodId", overrides.periodId ?? "10000000-0000-0000-0000-000000000001");
+  formData.set("categoryId", overrides.categoryId ?? "20000000-0000-0000-0000-000000000001");
+  formData.set("amount", overrides.amount ?? "123.45");
+  formData.set("currencyCode", overrides.currencyCode ?? "COP");
+  formData.set("occurredOn", overrides.occurredOn ?? "2026-03-15");
+  formData.set("description", overrides.description ?? "Compra semanal");
   if (overrides.userId !== undefined) formData.set("userId", overrides.userId);
   return formData;
 }
@@ -184,6 +214,19 @@ describe("budget period server action", () => {
       categoryType: "EXPENSE",
       plannedAmountMinor: input.plannedAmountMinor,
       currencyCode: input.currencyCode,
+    }));
+    mocks.createTransactionForOwner.mockImplementation(async (_ownerUserId: string, input) => ({
+      id: "40000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      periodId: input.periodId,
+      categoryId: input.categoryId,
+      categoryName: "Groceries",
+      categoryType: "EXPENSE",
+      direction: input.direction,
+      amountMinor: input.amountMinor,
+      currencyCode: input.currencyCode,
+      occurredOn: input.occurredOn,
+      description: input.description,
     }));
   });
 
@@ -439,6 +482,112 @@ describe("budget period server action", () => {
     await expect(
       createBudgetLineAction(initialBudgetLineActionState, budgetLineForm()),
     ).rejects.toThrow("planned-line write failed");
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("saves period transactions from authenticated owner context without accepting client owner ids", async () => {
+    const result = await createBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      transactionForm({ userId: "00000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(result).toMatchObject({
+      status: "success",
+      message: "Transacción registrada.",
+    });
+    expect(mocks.createTransactionForOwner).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: "10000000-0000-0000-0000-000000000001",
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      direction: "OUTFLOW",
+      amountMinor: "12345",
+      currencyCode: "COP",
+      occurredOn: "2026-03-15",
+      description: "Compra semanal",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/budget");
+  });
+
+  it("returns transaction amount feedback before writes for invalid money input", async () => {
+    const result = await createBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      transactionForm({ amount: "001" }),
+    );
+
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { amount: expect.stringMatching(/monto/) },
+    });
+    expect(result.message).not.toMatch(/unidades menores|minor units/i);
+    expect(mocks.createTransactionForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("returns transaction date feedback for malformed dates", async () => {
+    const result = await createBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      transactionForm({ occurredOn: "2026-02-30" }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Usa una fecha válida.",
+      fieldErrors: { occurredOn: "Usa una fecha válida." },
+    });
+    expect(mocks.createTransactionForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["periodId", "Selecciona un periodo propio válido.", (): void => {
+      mocks.findPeriodForOwner.mockResolvedValueOnce(null as never);
+    }],
+    ["categoryId", "Selecciona una categoría propia válida.", (): void => {
+      mocks.findCategoryForOwner.mockResolvedValueOnce(null as never);
+    }],
+    ["categoryId", "Selecciona una categoría activa.", (): void => {
+      mocks.findCategoryForOwner.mockResolvedValueOnce({
+        id: "20000000-0000-0000-0000-000000000001",
+        userId: mocks.owner.userId,
+        type: "EXPENSE" as const,
+        name: "Groceries",
+        sortOrder: 0,
+        archivedAt: "2026-04-01T00:00:00.000Z",
+      } as never);
+    }],
+    ["currencyCode", "Usa la misma moneda del periodo seleccionado.", (): void => undefined],
+    ["occurredOn", "Usa una fecha dentro del mes seleccionado.", (): void => undefined],
+    ["description", "Escribe una descripción breve.", (): void => undefined],
+  ] as const)("returns transaction validation feedback for %s", async (field, message, arrange) => {
+    arrange();
+
+    const result = await createBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      transactionForm(
+        field === "currencyCode"
+          ? { currencyCode: "USD" }
+          : field === "occurredOn"
+            ? { occurredOn: "2026-04-01" }
+            : field === "description"
+              ? { description: "   " }
+              : {},
+      ),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message,
+      fieldErrors: { [field]: message },
+    });
+    expect(mocks.createTransactionForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rethrows unexpected transaction repository failures without revalidating", async () => {
+    mocks.createTransactionForOwner.mockRejectedValueOnce(new Error("transaction write failed"));
+
+    await expect(
+      createBudgetTransactionAction(initialBudgetTransactionActionState, transactionForm()),
+    ).rejects.toThrow("transaction write failed");
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

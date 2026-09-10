@@ -8,6 +8,7 @@ import type {
   OwnedBudgetLine,
   OwnedCategory,
   OwnedPeriod,
+  OwnedTransaction,
 } from "@/modules/budget/application/owned-planning-repository";
 import {
   DEFAULT_BUDGET_TIME_ZONE,
@@ -19,6 +20,7 @@ import { prisma } from "@/lib/prisma";
 import { BudgetLineForm } from "./budget-line-form";
 import { BudgetCategoryForm } from "./budget-category-form";
 import { BudgetPeriodForm } from "./budget-period-form";
+import { BudgetTransactionForm } from "./budget-transaction-form";
 
 type BudgetPlanningState =
   | Readonly<{
@@ -26,6 +28,7 @@ type BudgetPlanningState =
       periods: readonly OwnedPeriod[];
       categories: readonly OwnedCategory[];
       plannedBudgetLines: readonly OwnedBudgetLine[];
+      transactions: readonly OwnedTransaction[];
       currentPeriod: OwnedPeriod | undefined;
     }>
   | Readonly<{ status: "authentication-required" }>;
@@ -58,6 +61,7 @@ export default async function BudgetPage() {
         periods={state.periods}
         categories={state.categories}
         plannedBudgetLines={state.plannedBudgetLines}
+        transactions={state.transactions}
         currentPeriod={state.currentPeriod}
       />
     </AppShell>
@@ -80,8 +84,11 @@ async function loadBudgetPlanningState(): Promise<BudgetPlanningState> {
     const plannedBudgetLines = currentPeriod
       ? await repository.listPlannedBudgetLinesForOwnerPeriod(owner.userId, currentPeriod.id)
       : [];
+    const transactions = currentPeriod
+      ? await repository.listTransactionsForOwnerPeriod(owner.userId, currentPeriod.id)
+      : [];
 
-    return { status: "authenticated", periods, categories, plannedBudgetLines, currentPeriod };
+    return { status: "authenticated", periods, categories, plannedBudgetLines, transactions, currentPeriod };
   } catch (error) {
     if (
       error instanceof AuthenticationRequiredError ||
@@ -99,10 +106,12 @@ function BudgetPlanningContent({
   currentPeriod,
   plannedBudgetLines,
   periods,
+  transactions,
 }: {
   readonly periods: readonly OwnedPeriod[];
   readonly categories: readonly OwnedCategory[];
   readonly plannedBudgetLines: readonly OwnedBudgetLine[];
+  readonly transactions: readonly OwnedTransaction[];
   readonly currentPeriod: OwnedPeriod | undefined;
 }) {
   const currentMonthStart = buildCurrentMonthStartForTimeZone({
@@ -167,6 +176,25 @@ function BudgetPlanningContent({
         </div>
 
         <BudgetLineForm
+          categories={categories}
+          currentPeriod={state.currentPeriod}
+        />
+      </section>
+
+      <section
+        className="budget-panel"
+        aria-labelledby="budget-transaction-form-heading"
+        data-current-period-id={currentPeriod?.id ?? ""}
+      >
+        <div>
+          <p className="eyebrow">Transacciones del mes</p>
+          <h2 id="budget-transaction-form-heading">Registrar transacción</h2>
+          <p>
+            Agrega movimientos del mes seleccionado usando categorías activas y la moneda del periodo.
+          </p>
+        </div>
+
+        <BudgetTransactionForm
           categories={categories}
           currentPeriod={state.currentPeriod}
         />
@@ -238,6 +266,32 @@ function BudgetPlanningContent({
         )}
       </section>
 
+      <section className="budget-panel" aria-labelledby="transactions-heading">
+        <div>
+          <p className="eyebrow">Mes actual</p>
+          <h2 id="transactions-heading">Transacciones registradas</h2>
+          <p>
+            Muestra los movimientos guardados para el mismo periodo seleccionado.
+          </p>
+        </div>
+
+        {transactions.length > 0 ? (
+          <ul className="transaction-list" aria-label="Transacciones del mes actual">
+            {transactions.map((transaction) => (
+              <li key={transaction.id} className="transaction-list-item">
+                <span>{transaction.description}</span>
+                <strong>{formatTransactionAmount(transaction.amountMinor, transaction.currencyCode, transaction.direction)}</strong>
+                <small>{transaction.categoryName} · {formatCategoryTypeLabel(transaction.categoryType)} · {transaction.occurredOn}</small>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="category-empty" role="status">
+            Aún no hay transacciones para el mes actual.
+          </p>
+        )}
+      </section>
+
       {!hasPeriods || !hasCategories ? (
         <section className="empty-state budget-empty-state" aria-labelledby="budget-empty-heading">
           <div>
@@ -261,6 +315,15 @@ function formatPeriodLabel(period: OwnedPeriod) {
 
 function formatBudgetLineAmount(plannedAmountMinor: string, currencyCode: string) {
   return formatCurrencyMinorUnits(plannedAmountMinor, currencyCode);
+}
+
+function formatTransactionAmount(
+  amountMinor: string,
+  currencyCode: string,
+  direction: OwnedTransaction["direction"],
+) {
+  const signedAmountMinor = direction === "OUTFLOW" ? `-${amountMinor}` : amountMinor;
+  return formatCurrencyMinorUnits(signedAmountMinor, currencyCode);
 }
 
 function formatCategoryTypeLabel(type: OwnedCategory["type"]) {

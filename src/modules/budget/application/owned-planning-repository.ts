@@ -27,6 +27,20 @@ export type OwnedBudgetLine = {
   readonly currencyCode: string;
 };
 
+export type OwnedTransaction = {
+  readonly id: string;
+  readonly userId: string;
+  readonly periodId: string;
+  readonly categoryId: string;
+  readonly categoryName: string;
+  readonly categoryType: OwnedCategory["type"];
+  readonly direction: "INFLOW" | "OUTFLOW";
+  readonly amountMinor: string;
+  readonly currencyCode: string;
+  readonly occurredOn: string;
+  readonly description: string;
+};
+
 export class DuplicateMonthlyPeriodError extends Error {
   constructor() {
     super("A monthly period already exists for this owner and month.");
@@ -60,6 +74,16 @@ export type UpsertPlannedBudgetLineForOwnerInput = {
   readonly currencyCode: string;
 };
 
+export type CreateTransactionForOwnerInput = {
+  readonly periodId: string;
+  readonly categoryId: string;
+  readonly direction: OwnedTransaction["direction"];
+  readonly amountMinor: string;
+  readonly currencyCode: string;
+  readonly occurredOn: string;
+  readonly description: string;
+};
+
 export type OwnedPlanningRepository = {
   readonly listPeriodsForOwner: (ownerUserId: string) => Promise<readonly OwnedPeriod[]>;
   readonly findPeriodForOwner: (
@@ -91,21 +115,32 @@ export type OwnedPlanningRepository = {
     ownerUserId: string,
     input: UpsertPlannedBudgetLineForOwnerInput,
   ) => Promise<OwnedBudgetLine>;
+  readonly listTransactionsForOwnerPeriod: (
+    ownerUserId: string,
+    periodId: string,
+  ) => Promise<readonly OwnedTransaction[]>;
+  readonly createTransactionForOwner: (
+    ownerUserId: string,
+    input: CreateTransactionForOwnerInput,
+  ) => Promise<OwnedTransaction>;
 };
 
 export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository {
   readonly #periods: OwnedPeriod[];
   readonly #categories: OwnedCategory[];
   readonly #budgetLines: OwnedBudgetLine[];
+  readonly #transactions: OwnedTransaction[];
 
   constructor(records: {
     readonly periods?: readonly OwnedPeriod[];
     readonly categories?: readonly OwnedCategory[];
     readonly budgetLines?: readonly OwnedBudgetLine[];
+    readonly transactions?: readonly OwnedTransaction[];
   }) {
     this.#periods = [...(records.periods ?? [])];
     this.#categories = [...(records.categories ?? [])];
     this.#budgetLines = [...(records.budgetLines ?? [])];
+    this.#transactions = [...(records.transactions ?? [])];
   }
 
   async listPeriodsForOwner(ownerUserId: string) {
@@ -215,5 +250,35 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
     };
     this.#budgetLines.push(budgetLine);
     return budgetLine;
+  }
+
+  async listTransactionsForOwnerPeriod(ownerUserId: string, periodId: string) {
+    return this.#transactions.filter(
+      (transaction) => transaction.userId === ownerUserId && transaction.periodId === periodId,
+    );
+  }
+
+  async createTransactionForOwner(
+    ownerUserId: string,
+    input: CreateTransactionForOwnerInput,
+  ) {
+    const category = this.#categories.find(
+      (record) => record.userId === ownerUserId && record.id === input.categoryId,
+    );
+    const transaction: OwnedTransaction = {
+      id: crypto.randomUUID(),
+      userId: ownerUserId,
+      periodId: input.periodId,
+      categoryId: input.categoryId,
+      categoryName: category?.name ?? "",
+      categoryType: category?.type ?? "EXPENSE",
+      direction: input.direction,
+      amountMinor: input.amountMinor,
+      currencyCode: input.currencyCode,
+      occurredOn: input.occurredOn,
+      description: input.description,
+    };
+    this.#transactions.push(transaction);
+    return transaction;
   }
 }

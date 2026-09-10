@@ -4,6 +4,7 @@ import {
   InMemoryOwnedPlanningRepository,
   type OwnedCategory,
   type OwnedPeriod,
+  type OwnedTransaction,
 } from "@/modules/budget/application/owned-planning-repository";
 
 const userA = "00000000-0000-0000-0000-000000000001";
@@ -42,6 +43,35 @@ const categories: OwnedCategory[] = [
     name: "Rent",
     sortOrder: 1,
     archivedAt: null,
+  },
+];
+
+const transactions: OwnedTransaction[] = [
+  {
+    id: "40000000-0000-0000-0000-000000000001",
+    userId: userA,
+    periodId: periods[0].id,
+    categoryId: categories[0].id,
+    categoryName: categories[0].name,
+    categoryType: categories[0].type,
+    direction: "OUTFLOW",
+    amountMinor: "12345",
+    currencyCode: "COP",
+    occurredOn: "2026-01-15",
+    description: "Compra semanal",
+  },
+  {
+    id: "40000000-0000-0000-0000-000000000002",
+    userId: userB,
+    periodId: periods[1].id,
+    categoryId: categories[1].id,
+    categoryName: categories[1].name,
+    categoryType: categories[1].type,
+    direction: "OUTFLOW",
+    amountMinor: "9900",
+    currencyCode: "USD",
+    occurredOn: "2026-01-16",
+    description: "Renta demo",
   },
 ];
 
@@ -104,5 +134,42 @@ describe("owner-scoped planning repository seam", () => {
     await expect(
       repository.createCategoryForOwner(userA, { type: "EXPENSE", name: "Groceries" }),
     ).rejects.toBeInstanceOf(DuplicateCategoryError);
+  });
+
+  it("lists only transactions for the authenticated owner's selected period", async () => {
+    const repository = new InMemoryOwnedPlanningRepository({ periods, categories, transactions });
+
+    await expect(repository.listTransactionsForOwnerPeriod(userA, periods[0].id)).resolves.toEqual([
+      transactions[0],
+    ]);
+    await expect(repository.listTransactionsForOwnerPeriod(userA, periods[1].id)).resolves.toEqual([]);
+  });
+
+  it("creates transactions for the authenticated owner without accepting client owner data", async () => {
+    const repository = new InMemoryOwnedPlanningRepository({ periods, categories });
+
+    const transaction = await repository.createTransactionForOwner(userA, {
+      periodId: periods[0].id,
+      categoryId: categories[0].id,
+      direction: "OUTFLOW",
+      amountMinor: "12345",
+      currencyCode: "COP",
+      occurredOn: "2026-01-15",
+      description: "Compra semanal",
+    });
+
+    expect(transaction).toMatchObject({
+      userId: userA,
+      periodId: periods[0].id,
+      categoryId: categories[0].id,
+      categoryName: categories[0].name,
+      categoryType: categories[0].type,
+      amountMinor: "12345",
+      description: "Compra semanal",
+    });
+    await expect(repository.listTransactionsForOwnerPeriod(userA, periods[0].id)).resolves.toEqual([
+      transaction,
+    ]);
+    await expect(repository.listTransactionsForOwnerPeriod(userB, periods[0].id)).resolves.toEqual([]);
   });
 });
