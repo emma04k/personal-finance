@@ -301,7 +301,7 @@ describe("budget planning page contract", () => {
     expect(plannedLineItemText).toMatch(/overflow-wrap:\s*anywhere\s*;/);
   });
 
-  it("renders a current-period transaction form and list without client owner fields", () => {
+  it("renders current-period transactions and summary data without client owner fields", () => {
     expect(existsSync(transactionActionStatePath)).toBe(true);
     expect(existsSync(transactionFormPath)).toBe(true);
     const page = source(pagePath);
@@ -317,6 +317,18 @@ describe("budget planning page contract", () => {
     expect(page).toMatch(/currentPeriod=\{state\.currentPeriod\}/);
     expect(page).toMatch(/formatTransactionAmount\(transaction\.amountMinor, transaction\.currencyCode, transaction\.direction\)/);
     expect(page).toMatch(/aria-labelledby="transactions-heading"/);
+    expect(page).toMatch(/buildMonthlyBudgetSummary/);
+    expect(page).toMatch(/aria-labelledby="monthly-summary-heading"/);
+    expect(page).toMatch(/summary\.availableBalance/);
+    expect(page).toMatch(/summary\.income/);
+    expect(page).toMatch(/summary\.consumptionExpenses/);
+    expect(page).toMatch(/summary\.debtPayments/);
+    expect(page).toMatch(/summary\.savingsAllocations/);
+    expect(page).toMatch(/summary\.incomeVariance/);
+    expect(page).toMatch(/summary\.expenseVariance/);
+    expect(page).toMatch(/summary\.totalOutflowRate/);
+    expect(page).toMatch(/formatCompletenessLabel/);
+    expect(page).toMatch(/plannedValuesUsed/);
     expect(form).toMatch(/useActionState\(createBudgetTransactionAction, initialBudgetTransactionActionState\)/);
     expect(form).toMatch(/<input type="hidden" name="periodId" value=\{currentPeriod\?\.id \?\? ""\} \/>/);
     expect(form).toMatch(/htmlFor="budget-transaction-category"/);
