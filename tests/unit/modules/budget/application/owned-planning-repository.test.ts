@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DuplicateCategoryError,
   InMemoryOwnedPlanningRepository,
+  type OwnedBudgetLine,
   type OwnedCategory,
   type OwnedPeriod,
   type OwnedTransaction,
@@ -43,6 +44,29 @@ const categories: OwnedCategory[] = [
     name: "Rent",
     sortOrder: 1,
     archivedAt: null,
+  },
+];
+
+const budgetLines: OwnedBudgetLine[] = [
+  {
+    id: "30000000-0000-0000-0000-000000000001",
+    userId: userA,
+    periodId: periods[0].id,
+    categoryId: categories[0].id,
+    categoryName: categories[0].name,
+    categoryType: categories[0].type,
+    plannedAmountMinor: "12345",
+    currencyCode: "COP",
+  },
+  {
+    id: "30000000-0000-0000-0000-000000000002",
+    userId: userB,
+    periodId: periods[1].id,
+    categoryId: categories[1].id,
+    categoryName: categories[1].name,
+    categoryType: categories[1].type,
+    plannedAmountMinor: "9900",
+    currencyCode: "USD",
   },
 ];
 
@@ -134,6 +158,15 @@ describe("owner-scoped planning repository seam", () => {
     await expect(
       repository.createCategoryForOwner(userA, { type: "EXPENSE", name: "Groceries" }),
     ).rejects.toBeInstanceOf(DuplicateCategoryError);
+  });
+
+  it("lists only planned budget lines for the authenticated owner's selected period", async () => {
+    const repository = new InMemoryOwnedPlanningRepository({ periods, categories, budgetLines });
+
+    await expect(repository.listPlannedBudgetLinesForOwnerPeriod(userA, periods[0].id)).resolves.toEqual([
+      budgetLines[0],
+    ]);
+    await expect(repository.listPlannedBudgetLinesForOwnerPeriod(userA, periods[1].id)).resolves.toEqual([]);
   });
 
   it("lists only transactions for the authenticated owner's selected period", async () => {

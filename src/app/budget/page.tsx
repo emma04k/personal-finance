@@ -372,7 +372,7 @@ function MonthlySummarySection({
         <article className="summary-card">
           <p>Saldo disponible</p>
           <strong>{formatMoney(summary.availableBalance)}</strong>
-          <small>Ingresos menos gastos, deuda y ahorro del mes.</small>
+          <small>{formatAvailableBalanceDetail(summary)}</small>
         </article>
         <article className="summary-card">
           <p>Salida total</p>
@@ -428,6 +428,17 @@ function formatAggregateDetail(aggregate: AggregateMoney) {
   return aggregate.plannedValuesUsed
     ? `${completeness} · Usa valores planeados donde falta el real.`
     : completeness;
+}
+
+function formatAvailableBalanceDetail(summary: BudgetSummary) {
+  const hasIncompleteInput = summary.income.completeness !== "complete"
+    || summary.consumptionExpenses.completeness !== "complete"
+    || summary.debtPayments.completeness !== "complete"
+    || summary.savingsAllocations.completeness !== "complete";
+
+  return hasIncompleteInput
+    ? "Estimado: hay grupos parciales o sin datos."
+    : "Ingresos menos gastos, deuda y ahorro del mes.";
 }
 
 function formatCompletenessLabel(completeness: AggregateMoney["completeness"]) {

@@ -20,8 +20,8 @@ const period: OwnedPeriod = {
 function plannedLine(overrides: Partial<OwnedBudgetLine>): OwnedBudgetLine {
   return {
     id: `line-${overrides.categoryId ?? "unknown"}`,
-    userId: ownerId,
-    periodId: period.id,
+    userId: overrides.userId ?? ownerId,
+    periodId: overrides.periodId ?? period.id,
     categoryId: overrides.categoryId ?? "category",
     categoryName: overrides.categoryName ?? "Category",
     categoryType: overrides.categoryType ?? "EXPENSE",
@@ -33,8 +33,8 @@ function plannedLine(overrides: Partial<OwnedBudgetLine>): OwnedBudgetLine {
 function transaction(overrides: Partial<OwnedTransaction>): OwnedTransaction {
   return {
     id: `tx-${overrides.categoryId ?? "unknown"}-${overrides.amountMinor ?? "0"}`,
-    userId: ownerId,
-    periodId: period.id,
+    userId: overrides.userId ?? ownerId,
+    periodId: overrides.periodId ?? period.id,
     categoryId: overrides.categoryId ?? "category",
     categoryName: overrides.categoryName ?? "Category",
     categoryType: overrides.categoryType ?? "EXPENSE",
@@ -96,5 +96,82 @@ describe("monthly budget summary workflow", () => {
     });
 
     expect(result).toEqual({ ok: false, error: { code: "CURRENCY_MISMATCH", field: "currency" } });
+  });
+
+  it("fails closed instead of converting mixed-currency transaction records", () => {
+    const result = buildMonthlyBudgetSummary({
+      period,
+      plannedBudgetLines: [],
+      transactions: [
+        transaction({ categoryId: "salary", categoryType: "INCOME", direction: "INFLOW", amountMinor: "100000", currencyCode: "USD" }),
+      ],
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "CURRENCY_MISMATCH", field: "currency" } });
+  });
+
+  it.each(["01", "1.25", "-1", "1e3", " 1"])(
+    "rejects noncanonical planned amount minor units %s",
+    (plannedAmountMinor) => {
+      const result = buildMonthlyBudgetSummary({
+        period,
+        plannedBudgetLines: [plannedLine({ categoryId: "groceries", plannedAmountMinor })],
+        transactions: [],
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "INVALID_MONTHLY_SUMMARY_AMOUNT", field: "plannedAmountMinor" },
+      });
+    },
+  );
+
+  it.each(["01", "1.25", "-1", "1e3", " 1"])(
+    "rejects noncanonical transaction amount minor units %s",
+    (amountMinor) => {
+      const result = buildMonthlyBudgetSummary({
+        period,
+        plannedBudgetLines: [],
+        transactions: [transaction({ categoryId: "groceries", amountMinor })],
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "INVALID_MONTHLY_SUMMARY_AMOUNT", field: "amountMinor" },
+      });
+    },
+  );
+
+  it("ignores planned lines and transactions outside the selected period", () => {
+    const result = buildMonthlyBudgetSummary({
+      period,
+      plannedBudgetLines: [
+        plannedLine({ categoryId: "salary", categoryType: "INCOME", plannedAmountMinor: "1000" }),
+        plannedLine({
+          categoryId: "ignored-line",
+          periodId: "10000000-0000-0000-0000-000000000002",
+          plannedAmountMinor: "01",
+          currencyCode: "USD",
+        }),
+      ],
+      transactions: [
+        transaction({ categoryId: "groceries", categoryType: "EXPENSE", amountMinor: "200" }),
+        transaction({
+          categoryId: "ignored-transaction",
+          periodId: "10000000-0000-0000-0000-000000000002",
+          amountMinor: "1e3",
+          currencyCode: "USD",
+        }),
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        income: { amount: { minorUnits: BigInt("1000") } },
+        consumptionExpenses: { amount: { minorUnits: BigInt("200") } },
+        availableBalance: { minorUnits: BigInt("800") },
+      },
+    });
   });
 });
