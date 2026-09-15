@@ -28,6 +28,8 @@ docker compose ps
 
 The app receives a container-safe `DATABASE_URL` that uses `db:5432`. PostgreSQL data and container dependencies live in named volumes. Do not commit `.env`.
 
+PostgreSQL is intentionally not published to the host by default. This avoids local port collisions while keeping app-to-database traffic on the Compose network. If you need a desktop database client, add a local-only override file that publishes `127.0.0.1:5432:5432` for the `db` service.
+
 If WSL reports `docker: command not found`, enable that distribution under Docker Desktop → Settings → Resources → WSL Integration, then rerun the commands above. Do not replace `db` with `localhost` inside the app container.
 
 ## Host checks
