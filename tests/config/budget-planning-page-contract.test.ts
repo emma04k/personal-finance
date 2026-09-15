@@ -353,6 +353,18 @@ describe("budget planning page contract", () => {
     expect(action).not.toMatch(/unidades menores|minor units/i);
   });
 
+  it("marks available balance as estimated when summary inputs are incomplete", () => {
+    const page = source(pagePath);
+
+    expect(page).toMatch(/<small>\{formatAvailableBalanceDetail\(summary\)\}<\/small>/);
+    expect(page).toMatch(/summary\.income\.completeness !== "complete"/);
+    expect(page).toMatch(/summary\.consumptionExpenses\.completeness !== "complete"/);
+    expect(page).toMatch(/summary\.debtPayments\.completeness !== "complete"/);
+    expect(page).toMatch(/summary\.savingsAllocations\.completeness !== "complete"/);
+    expect(page).toMatch(/Estimado: hay grupos parciales o sin datos\./);
+    expect(page).toMatch(/Ingresos menos gastos, deuda y ahorro del mes\./);
+  });
+
   it("binds the transaction form and list to the same current period", () => {
     const page = source(pagePath);
     const form = source(transactionFormPath);
