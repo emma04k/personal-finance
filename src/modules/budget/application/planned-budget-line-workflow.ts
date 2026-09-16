@@ -1,4 +1,8 @@
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
+import {
+  DEFAULT_BUDGET_TIME_ZONE,
+  selectDisplayedBudgetPeriod,
+} from "@/modules/budget/application/default-budget-period";
 import { parseCurrencyAmountToMinorUnits } from "@/modules/finance/application/currency-amount";
 import { createCurrencyCode, type CurrencyCodeError } from "@/modules/finance/domain/money";
 import { err, ok, type Result } from "@/modules/finance/domain/result";
@@ -15,14 +19,19 @@ type PlannedBudgetLineValidationError = Readonly<{
     | "CATEGORY_NOT_FOUND"
     | "CATEGORY_NOT_ACTIVE"
     | "CURRENCY_MISMATCH"
-    | "INVALID_CATEGORY_TYPE";
-  field: "plannedAmount" | "periodId" | "categoryId" | "currencyCode";
+    | "INVALID_CATEGORY_TYPE"
+    | "PLANNED_LINE_NOT_FOUND";
+  field: "plannedAmount" | "periodId" | "categoryId" | "currencyCode" | "budgetLineId";
 }>;
 
 export type PlannedBudgetLineError = PlannedBudgetLineValidationError | CurrencyCodeError;
 
 export type UpsertPlannedBudgetLineResult = Readonly<{
   budgetLine: OwnedBudgetLine;
+}>;
+
+export type DeletePlannedBudgetLineResult = Readonly<{
+  deleted: true;
 }>;
 
 const allowedCategoryTypes = new Set<OwnedCategory["type"]>([
@@ -80,4 +89,38 @@ export async function upsertPlannedBudgetLine({
     currencyCode: currency.value,
   });
   return ok({ budgetLine });
+}
+
+export async function deletePlannedBudgetLine({
+  input,
+  owner,
+  repository,
+}: {
+  readonly owner: OwnershipContext;
+  readonly repository: Pick<
+    OwnedPlanningRepository,
+    "listPeriodsForOwner" | "deletePlannedBudgetLineForOwnerPeriod"
+  >;
+  readonly input: {
+    readonly periodId: string;
+    readonly budgetLineId: string;
+  };
+}): Promise<Result<DeletePlannedBudgetLineResult, PlannedBudgetLineError>> {
+  const periods = await repository.listPeriodsForOwner(owner.userId);
+  const displayedPeriod = selectDisplayedBudgetPeriod({
+    periods,
+    now: new Date(),
+    timeZone: DEFAULT_BUDGET_TIME_ZONE,
+  });
+  if (!displayedPeriod || input.periodId !== displayedPeriod.id) {
+    return err({ code: "PERIOD_NOT_FOUND", field: "periodId" });
+  }
+
+  const deleted = await repository.deletePlannedBudgetLineForOwnerPeriod(owner.userId, {
+    periodId: displayedPeriod.id,
+    budgetLineId: input.budgetLineId,
+  });
+
+  if (!deleted) return err({ code: "PLANNED_LINE_NOT_FOUND", field: "budgetLineId" });
+  return ok({ deleted: true });
 }

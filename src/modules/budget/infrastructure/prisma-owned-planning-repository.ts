@@ -1,6 +1,7 @@
 import {
   type CreateCategoryForOwnerInput,
   type CreateTransactionForOwnerInput,
+  type DeletePlannedBudgetLineForOwnerPeriodInput,
   type DeleteTransactionForOwnerPeriodInput,
   DuplicateCategoryError,
   DuplicateMonthlyPeriodError,
@@ -53,6 +54,7 @@ type PlanningPrismaClient = {
     readonly create: PrismaDelegateMethod;
     readonly findFirst: PrismaDelegateMethod;
     readonly update: PrismaDelegateMethod;
+    readonly deleteMany?: PrismaDelegateMethod;
   };
   readonly transaction?: {
     readonly findMany: PrismaDelegateMethod;
@@ -217,6 +219,23 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
       });
       return toOwnedBudgetLine(updated);
     }
+  }
+
+  async deletePlannedBudgetLineForOwnerPeriod(
+    ownerUserId: string,
+    input: DeletePlannedBudgetLineForOwnerPeriodInput,
+  ) {
+    const budgetLine = budgetLineDelegate(this.db);
+    const result = await deleteManyBudgetLines(budgetLine, {
+      where: {
+        id: input.budgetLineId,
+        userId: ownerUserId,
+        periodId: input.periodId,
+        kind: "PLANNED",
+      },
+    });
+
+    return result.count > 0;
   }
 
   async listTransactionsForOwnerPeriod(ownerUserId: string, periodId: string) {
@@ -419,6 +438,16 @@ function updateBudgetLine(
   return (budgetLine.update as (
     args: Record<string, unknown>
   ) => Promise<PrismaBudgetLineRecord>)(args);
+}
+
+function deleteManyBudgetLines(
+  budgetLine: BudgetLinePrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  if (!budgetLine.deleteMany) throw new Error("Budget line deleteMany delegate is required.");
+  return (budgetLine.deleteMany as (
+    args: Record<string, unknown>
+  ) => Promise<{ readonly count: number }>)(args);
 }
 
 function findManyTransactions(

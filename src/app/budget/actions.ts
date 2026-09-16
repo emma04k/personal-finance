@@ -11,6 +11,7 @@ import {
   type MonthlyPlanningError,
 } from "@/modules/budget/application/monthly-planning-workflow";
 import {
+  deletePlannedBudgetLine,
   type PlannedBudgetLineError,
   upsertPlannedBudgetLine,
 } from "@/modules/budget/application/planned-budget-line-workflow";
@@ -119,6 +120,33 @@ export async function createBudgetLineAction(
   return {
     status: "success",
     message: "Monto planeado guardado.",
+    fieldErrors: {},
+  };
+}
+
+export async function deleteBudgetLineAction(
+  previousState: BudgetLineActionState,
+  formData: FormData,
+): Promise<BudgetLineActionState> {
+  void previousState;
+
+  const owner = await requireCurrentOwnershipContext();
+  const repository = new PrismaOwnedPlanningRepository(prisma);
+  const result = await deletePlannedBudgetLine({
+    owner,
+    repository,
+    input: {
+      periodId: stringField(formData, "periodId"),
+      budgetLineId: stringField(formData, "budgetLineId"),
+    },
+  });
+
+  if (!result.ok) return budgetLineErrorState(result.error);
+
+  revalidatePath("/budget");
+  return {
+    status: "success",
+    message: "Monto planeado eliminado.",
     fieldErrors: {},
   };
 }
@@ -249,6 +277,8 @@ function budgetLineErrorState(error: PlannedBudgetLineError): BudgetLineActionSt
       return budgetLineValidationError("currencyCode", "Selecciona una moneda soportada.");
     case "CURRENCY_MISMATCH":
       return budgetLineValidationError("currencyCode", "Usa la misma moneda del periodo seleccionado.");
+    case "PLANNED_LINE_NOT_FOUND":
+      return budgetLineValidationError("budgetLineId", "No se encontró un monto planeado propio para eliminar.");
   }
 }
 

@@ -364,6 +364,61 @@ describe("Prisma owner-scoped planning repository", () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it("deletes planned lines by owner, period, id, and planned kind", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      budgetLine: {
+        findMany: vi.fn(),
+        updateMany: vi.fn(),
+        create: vi.fn(),
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        deleteMany,
+      } as never,
+    });
+
+    await expect(
+      repository.deletePlannedBudgetLineForOwnerPeriod(ownerUserId, {
+        periodId: "10000000-0000-0000-0000-000000000001",
+        budgetLineId: "30000000-0000-0000-0000-000000000001",
+      }),
+    ).resolves.toBe(true);
+
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: "30000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+        kind: "PLANNED",
+      },
+    });
+  });
+
+  it("returns false when no owner-scoped planned line is deleted", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 0 });
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      budgetLine: {
+        findMany: vi.fn(),
+        updateMany: vi.fn(),
+        create: vi.fn(),
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        deleteMany,
+      } as never,
+    });
+
+    await expect(
+      repository.deletePlannedBudgetLineForOwnerPeriod(ownerUserId, {
+        periodId: otherPeriodId,
+        budgetLineId: "30000000-0000-0000-0000-000000000999",
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("rethrows unrelated planned-line P2002 errors without fallback updates", async () => {
     const uniqueError = {
       code: "P2002",

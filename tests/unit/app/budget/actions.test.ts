@@ -84,6 +84,7 @@ const mocks = vi.hoisted(() => {
     occurredOn: input.occurredOn,
     description: input.description,
   }));
+  const deletePlannedBudgetLineForOwnerPeriod = vi.fn(async () => true);
   const deleteTransactionForOwnerPeriod = vi.fn(async () => true);
   const repository: Pick<
     OwnedPlanningRepository,
@@ -94,6 +95,7 @@ const mocks = vi.hoisted(() => {
     | "findPeriodForOwner"
     | "findCategoryForOwner"
     | "upsertPlannedBudgetLineForOwner"
+    | "deletePlannedBudgetLineForOwnerPeriod"
     | "createTransactionForOwner"
     | "deleteTransactionForOwnerPeriod"
   > = {
@@ -104,6 +106,7 @@ const mocks = vi.hoisted(() => {
     findPeriodForOwner,
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
+    deletePlannedBudgetLineForOwnerPeriod,
     createTransactionForOwner,
     deleteTransactionForOwnerPeriod,
   };
@@ -120,6 +123,7 @@ const mocks = vi.hoisted(() => {
     findPeriodForOwner,
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
+    deletePlannedBudgetLineForOwnerPeriod,
     createTransactionForOwner,
     deleteTransactionForOwnerPeriod,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
@@ -150,6 +154,7 @@ import {
   createBudgetCategoryAction,
   createBudgetPeriodAction,
   createBudgetTransactionAction,
+  deleteBudgetLineAction,
   deleteBudgetTransactionAction,
 } from "@/app/budget/actions";
 import { initialBudgetLineActionState } from "@/app/budget/budget-line-action-state";
@@ -203,6 +208,14 @@ function deleteTransactionForm(overrides: Partial<Record<"periodId" | "transacti
   return formData;
 }
 
+function deleteBudgetLineForm(overrides: Partial<Record<"periodId" | "budgetLineId" | "userId", string>> = {}) {
+  const formData = new FormData();
+  formData.set("periodId", overrides.periodId ?? "10000000-0000-0000-0000-000000000001");
+  formData.set("budgetLineId", overrides.budgetLineId ?? "30000000-0000-0000-0000-000000000001");
+  if (overrides.userId !== undefined) formData.set("userId", overrides.userId);
+  return formData;
+}
+
 describe("budget period server action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -250,6 +263,7 @@ describe("budget period server action", () => {
       plannedAmountMinor: input.plannedAmountMinor,
       currencyCode: input.currencyCode,
     }));
+    mocks.deletePlannedBudgetLineForOwnerPeriod.mockResolvedValue(true);
     mocks.createTransactionForOwner.mockImplementation(async (_ownerUserId: string, input) => ({
       id: "40000000-0000-0000-0000-000000000001",
       userId: mocks.owner.userId,
@@ -522,6 +536,62 @@ describe("budget period server action", () => {
     await expect(
       createBudgetLineAction(initialBudgetLineActionState, budgetLineForm()),
     ).rejects.toThrow("planned-line write failed");
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("deletes planned budget lines from authenticated owner context without accepting client owner ids", async () => {
+    const result = await deleteBudgetLineAction(
+      initialBudgetLineActionState,
+      deleteBudgetLineForm({ userId: "00000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Monto planeado eliminado.",
+      fieldErrors: {},
+    });
+    expect(mocks.deletePlannedBudgetLineForOwnerPeriod).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: "10000000-0000-0000-0000-000000000001",
+      budgetLineId: "30000000-0000-0000-0000-000000000001",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/budget");
+  });
+
+  it("returns clear delete feedback when the planned line is missing or outside the owner's period", async () => {
+    mocks.deletePlannedBudgetLineForOwnerPeriod.mockResolvedValueOnce(false);
+
+    const result = await deleteBudgetLineAction(
+      initialBudgetLineActionState,
+      deleteBudgetLineForm(),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "No se encontró un monto planeado propio para eliminar.",
+      fieldErrors: { budgetLineId: "No se encontró un monto planeado propio para eliminar." },
+    });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects planned-line delete submissions for an owned non-current period instead of trusting the hidden period id", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    mocks.listPeriodsForOwner.mockResolvedValueOnce([
+      mocks.nonCurrentOwnedPeriod,
+      mocks.currentPeriod,
+    ]);
+    const result = await deleteBudgetLineAction(
+      initialBudgetLineActionState,
+      deleteBudgetLineForm({ periodId: mocks.nonCurrentOwnedPeriod.id }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Selecciona un periodo propio válido.",
+      fieldErrors: { periodId: "Selecciona un periodo propio válido." },
+    });
+    expect(mocks.listPeriodsForOwner).toHaveBeenCalledWith(mocks.owner.userId);
+    expect(mocks.deletePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
