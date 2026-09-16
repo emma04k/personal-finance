@@ -678,7 +678,7 @@ describe("Prisma owner-scoped planning repository", () => {
     const repository = new PrismaOwnedPlanningRepository({
       period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
       category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
-      transaction: { findMany: vi.fn(), create } as never,
+      transaction: { findMany: vi.fn(), create, deleteMany: vi.fn() } as never,
     });
 
     await expect(
@@ -710,5 +710,45 @@ describe("Prisma owner-scoped planning repository", () => {
       },
       include: { category: { select: { name: true, type: true } } },
     });
+  });
+
+  it("deletes actual transactions only through owner-period scoped filters", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      transaction: { findMany: vi.fn(), create: vi.fn(), deleteMany } as never,
+    });
+
+    await expect(
+      repository.deleteTransactionForOwnerPeriod(ownerUserId, {
+        periodId: "10000000-0000-0000-0000-000000000001",
+        transactionId: "40000000-0000-0000-0000-000000000001",
+      }),
+    ).resolves.toBe(true);
+
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: "40000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+      },
+    });
+  });
+
+  it("reports false when no owner-period scoped transaction is deleted", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 0 });
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      transaction: { findMany: vi.fn(), create: vi.fn(), deleteMany } as never,
+    });
+
+    await expect(
+      repository.deleteTransactionForOwnerPeriod(ownerUserId, {
+        periodId: otherPeriodId,
+        transactionId: "40000000-0000-0000-0000-000000000999",
+      }),
+    ).resolves.toBe(false);
   });
 });

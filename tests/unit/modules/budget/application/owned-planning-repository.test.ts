@@ -205,4 +205,38 @@ describe("owner-scoped planning repository seam", () => {
     ]);
     await expect(repository.listTransactionsForOwnerPeriod(userB, periods[0].id)).resolves.toEqual([]);
   });
+
+  it("deletes only transactions matching owner period and transaction id", async () => {
+    const repository = new InMemoryOwnedPlanningRepository({ periods, categories, transactions });
+
+    await expect(repository.deleteTransactionForOwnerPeriod(userA, {
+      periodId: periods[0].id,
+      transactionId: transactions[0].id,
+    })).resolves.toBe(true);
+
+    await expect(repository.listTransactionsForOwnerPeriod(userA, periods[0].id)).resolves.toEqual([]);
+    await expect(repository.listTransactionsForOwnerPeriod(userB, periods[1].id)).resolves.toEqual([
+      transactions[1],
+    ]);
+  });
+
+  it("does not delete another owner's transaction or a transaction from another period", async () => {
+    const repository = new InMemoryOwnedPlanningRepository({ periods, categories, transactions });
+
+    await expect(repository.deleteTransactionForOwnerPeriod(userA, {
+      periodId: periods[0].id,
+      transactionId: transactions[1].id,
+    })).resolves.toBe(false);
+    await expect(repository.deleteTransactionForOwnerPeriod(userA, {
+      periodId: periods[1].id,
+      transactionId: transactions[0].id,
+    })).resolves.toBe(false);
+
+    await expect(repository.listTransactionsForOwnerPeriod(userA, periods[0].id)).resolves.toEqual([
+      transactions[0],
+    ]);
+    await expect(repository.listTransactionsForOwnerPeriod(userB, periods[1].id)).resolves.toEqual([
+      transactions[1],
+    ]);
+  });
 });

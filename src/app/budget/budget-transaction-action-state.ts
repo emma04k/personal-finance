@@ -1,4 +1,4 @@
-export type BudgetTransactionActionField = "periodId" | "categoryId" | "amount" | "currencyCode" | "occurredOn" | "description";
+export type BudgetTransactionActionField = "periodId" | "categoryId" | "amount" | "currencyCode" | "occurredOn" | "description" | "transactionId";
 
 export type BudgetTransactionActionFieldErrors = Partial<Record<BudgetTransactionActionField, string>>;
 

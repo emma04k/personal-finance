@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
 import {
   DuplicateCategoryError,
@@ -12,6 +12,22 @@ const mocks = vi.hoisted(() => {
     email: "owner@example.test",
   };
 
+  const currentPeriod = {
+    id: "10000000-0000-0000-0000-000000000001",
+    userId: owner.userId,
+    monthStart: "2026-03-01",
+    currencyCode: "COP",
+    timeZone: "America/Bogota",
+    note: null,
+  };
+
+  const nonCurrentOwnedPeriod = {
+    ...currentPeriod,
+    id: "10000000-0000-0000-0000-000000000002",
+    monthStart: "2026-02-01",
+  };
+
+  const listPeriodsForOwner = vi.fn(async () => [currentPeriod]);
   const findPeriodByMonthForOwner = vi.fn(async () => null);
   const createPeriodForOwner = vi.fn(async (_ownerUserId: string, input) => ({
     id: "10000000-0000-0000-0000-000000000001",
@@ -68,16 +84,20 @@ const mocks = vi.hoisted(() => {
     occurredOn: input.occurredOn,
     description: input.description,
   }));
+  const deleteTransactionForOwnerPeriod = vi.fn(async () => true);
   const repository: Pick<
     OwnedPlanningRepository,
     | "findPeriodByMonthForOwner"
+    | "listPeriodsForOwner"
     | "createPeriodForOwner"
     | "createCategoryForOwner"
     | "findPeriodForOwner"
     | "findCategoryForOwner"
     | "upsertPlannedBudgetLineForOwner"
     | "createTransactionForOwner"
+    | "deleteTransactionForOwnerPeriod"
   > = {
+    listPeriodsForOwner,
     findPeriodByMonthForOwner,
     createPeriodForOwner,
     createCategoryForOwner,
@@ -85,11 +105,15 @@ const mocks = vi.hoisted(() => {
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
     createTransactionForOwner,
+    deleteTransactionForOwnerPeriod,
   };
 
   return {
     owner,
+    currentPeriod,
+    nonCurrentOwnedPeriod,
     repository,
+    listPeriodsForOwner,
     findPeriodByMonthForOwner,
     createPeriodForOwner,
     createCategoryForOwner,
@@ -97,6 +121,7 @@ const mocks = vi.hoisted(() => {
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
     createTransactionForOwner,
+    deleteTransactionForOwnerPeriod,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
     revalidatePath: vi.fn(),
   };
@@ -125,6 +150,7 @@ import {
   createBudgetCategoryAction,
   createBudgetPeriodAction,
   createBudgetTransactionAction,
+  deleteBudgetTransactionAction,
 } from "@/app/budget/actions";
 import { initialBudgetLineActionState } from "@/app/budget/budget-line-action-state";
 import { initialBudgetTransactionActionState } from "@/app/budget/budget-transaction-action-state";
@@ -169,9 +195,18 @@ function transactionForm(overrides: Partial<Record<"periodId" | "categoryId" | "
   return formData;
 }
 
+function deleteTransactionForm(overrides: Partial<Record<"periodId" | "transactionId" | "userId", string>> = {}) {
+  const formData = new FormData();
+  formData.set("periodId", overrides.periodId ?? "10000000-0000-0000-0000-000000000001");
+  formData.set("transactionId", overrides.transactionId ?? "40000000-0000-0000-0000-000000000001");
+  if (overrides.userId !== undefined) formData.set("userId", overrides.userId);
+  return formData;
+}
+
 describe("budget period server action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.listPeriodsForOwner.mockResolvedValue([mocks.currentPeriod]);
     mocks.findPeriodByMonthForOwner.mockResolvedValue(null);
     mocks.createPeriodForOwner.mockImplementation(async (_ownerUserId: string, input) => ({
       id: "10000000-0000-0000-0000-000000000001",
@@ -228,6 +263,11 @@ describe("budget period server action", () => {
       occurredOn: input.occurredOn,
       description: input.description,
     }));
+    mocks.deleteTransactionForOwnerPeriod.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns field feedback for an invalid month without accepting a client owner id", async () => {
@@ -579,6 +619,62 @@ describe("budget period server action", () => {
       fieldErrors: { [field]: message },
     });
     expect(mocks.createTransactionForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("deletes period transactions from authenticated owner context without accepting client owner ids", async () => {
+    const result = await deleteBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      deleteTransactionForm({ userId: "00000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Transacción eliminada.",
+      fieldErrors: {},
+    });
+    expect(mocks.deleteTransactionForOwnerPeriod).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: "10000000-0000-0000-0000-000000000001",
+      transactionId: "40000000-0000-0000-0000-000000000001",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/budget");
+  });
+
+  it("returns clear delete feedback when the transaction is missing or outside the owner's period", async () => {
+    mocks.deleteTransactionForOwnerPeriod.mockResolvedValueOnce(false);
+
+    const result = await deleteBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      deleteTransactionForm(),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "No se encontró una transacción propia para eliminar.",
+      fieldErrors: { transactionId: "No se encontró una transacción propia para eliminar." },
+    });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects delete submissions for an owned non-current period instead of trusting the hidden period id", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    mocks.listPeriodsForOwner.mockResolvedValueOnce([
+      mocks.nonCurrentOwnedPeriod,
+      mocks.currentPeriod,
+    ]);
+    const result = await deleteBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      deleteTransactionForm({ periodId: mocks.nonCurrentOwnedPeriod.id }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Selecciona un periodo propio válido.",
+      fieldErrors: { periodId: "Selecciona un periodo propio válido." },
+    });
+    expect(mocks.listPeriodsForOwner).toHaveBeenCalledWith(mocks.owner.userId);
+    expect(mocks.deleteTransactionForOwnerPeriod).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
