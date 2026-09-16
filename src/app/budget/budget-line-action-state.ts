@@ -1,4 +1,4 @@
-export type BudgetLineActionField = "periodId" | "categoryId" | "plannedAmount" | "currencyCode";
+export type BudgetLineActionField = "periodId" | "categoryId" | "plannedAmount" | "currencyCode" | "budgetLineId";
 
 export type BudgetLineActionFieldErrors = Partial<Record<BudgetLineActionField, string>>;
 

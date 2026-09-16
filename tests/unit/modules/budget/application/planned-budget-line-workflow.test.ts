@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
-import { upsertPlannedBudgetLine } from "@/modules/budget/application/planned-budget-line-workflow";
+import {
+  deletePlannedBudgetLine,
+  upsertPlannedBudgetLine,
+} from "@/modules/budget/application/planned-budget-line-workflow";
 import type {
   OwnedBudgetLine,
   OwnedCategory,
@@ -21,6 +24,12 @@ const period: OwnedPeriod = {
   currencyCode: "COP",
   timeZone: "America/Bogota",
   note: null,
+};
+
+const nonCurrentOwnedPeriod: OwnedPeriod = {
+  ...period,
+  id: "10000000-0000-0000-0000-000000000002",
+  monthStart: "2026-02-01",
 };
 
 const category: OwnedCategory = {
@@ -54,11 +63,87 @@ function repository(overrides: Partial<Pick<OwnedPlanningRepository,
   };
 }
 
+function deleteRepository(overrides: Partial<Pick<OwnedPlanningRepository,
+  "listPeriodsForOwner" | "deletePlannedBudgetLineForOwnerPeriod"
+>> = {}) {
+  return {
+    listPeriodsForOwner: vi.fn(async () => [period]),
+    deletePlannedBudgetLineForOwnerPeriod: vi.fn(async () => true),
+    ...overrides,
+  };
+}
+
 function periodWithCurrency(currencyCode: string): OwnedPeriod {
   return { ...period, currencyCode };
 }
 
 describe("planned budget line workflow", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("deletes an owned planned line from the server-displayed current period", async () => {
+    const repo = deleteRepository();
+
+    const result = await deletePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: plannedLine.id,
+      },
+    });
+
+    expect(result).toEqual({ ok: true, value: { deleted: true } });
+    expect(repo.listPeriodsForOwner).toHaveBeenCalledWith(owner.userId);
+    expect(repo.deletePlannedBudgetLineForOwnerPeriod).toHaveBeenCalledWith(owner.userId, {
+      periodId: period.id,
+      budgetLineId: plannedLine.id,
+    });
+  });
+
+  it("rejects deleting missing planned lines outside the authenticated owner's current period", async () => {
+    const repo = deleteRepository({ deletePlannedBudgetLineForOwnerPeriod: vi.fn(async () => false) });
+
+    const result = await deletePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: "30000000-0000-0000-0000-000000000999",
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "PLANNED_LINE_NOT_FOUND", field: "budgetLineId" },
+    });
+    expect(repo.deletePlannedBudgetLineForOwnerPeriod).toHaveBeenCalledWith(owner.userId, {
+      periodId: period.id,
+      budgetLineId: "30000000-0000-0000-0000-000000000999",
+    });
+  });
+
+  it("rejects deleting an owned planned line from an owned period that is not the server-displayed current period", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    const repo = deleteRepository({
+      listPeriodsForOwner: vi.fn(async () => [nonCurrentOwnedPeriod, period]),
+    });
+
+    const result = await deletePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: nonCurrentOwnedPeriod.id,
+        budgetLineId: plannedLine.id,
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "PERIOD_NOT_FOUND", field: "periodId" } });
+    expect(repo.listPeriodsForOwner).toHaveBeenCalledWith(owner.userId);
+    expect(repo.deletePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
   it("upserts a planned amount for the authenticated owner's active category and owned period", async () => {
     const repo = repository();
 

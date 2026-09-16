@@ -74,6 +74,11 @@ export type UpsertPlannedBudgetLineForOwnerInput = {
   readonly currencyCode: string;
 };
 
+export type DeletePlannedBudgetLineForOwnerPeriodInput = {
+  readonly periodId: string;
+  readonly budgetLineId: string;
+};
+
 export type CreateTransactionForOwnerInput = {
   readonly periodId: string;
   readonly categoryId: string;
@@ -120,6 +125,10 @@ export type OwnedPlanningRepository = {
     ownerUserId: string,
     input: UpsertPlannedBudgetLineForOwnerInput,
   ) => Promise<OwnedBudgetLine>;
+  readonly deletePlannedBudgetLineForOwnerPeriod: (
+    ownerUserId: string,
+    input: DeletePlannedBudgetLineForOwnerPeriodInput,
+  ) => Promise<boolean>;
   readonly listTransactionsForOwnerPeriod: (
     ownerUserId: string,
     periodId: string,
@@ -259,6 +268,21 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
     };
     this.#budgetLines.push(budgetLine);
     return budgetLine;
+  }
+
+  async deletePlannedBudgetLineForOwnerPeriod(
+    ownerUserId: string,
+    input: DeletePlannedBudgetLineForOwnerPeriodInput,
+  ) {
+    const budgetLineIndex = this.#budgetLines.findIndex(
+      (budgetLine) => budgetLine.userId === ownerUserId
+        && budgetLine.periodId === input.periodId
+        && budgetLine.id === input.budgetLineId,
+    );
+
+    if (budgetLineIndex === -1) return false;
+    this.#budgetLines.splice(budgetLineIndex, 1);
+    return true;
   }
 
   async listTransactionsForOwnerPeriod(ownerUserId: string, periodId: string) {

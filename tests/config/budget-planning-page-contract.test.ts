@@ -7,6 +7,7 @@ const actionPath = resolve("src/app/budget/actions.ts");
 const periodTransactionWorkflowPath = resolve("src/modules/budget/application/period-transaction-workflow.ts");
 const budgetLineActionStatePath = resolve("src/app/budget/budget-line-action-state.ts");
 const budgetLineFormPath = resolve("src/app/budget/budget-line-form.tsx");
+const budgetLineDeleteFormPath = resolve("src/app/budget/budget-line-delete-form.tsx");
 const transactionActionStatePath = resolve("src/app/budget/budget-transaction-action-state.ts");
 const transactionFormPath = resolve("src/app/budget/budget-transaction-form.tsx");
 const transactionDeleteFormPath = resolve("src/app/budget/budget-transaction-delete-form.tsx");
@@ -301,6 +302,45 @@ describe("budget planning page contract", () => {
     expect(plannedLineList).toMatch(/gap:\s*\d+px\s*;/);
     expect(plannedLineItem).toMatch(/min-width:\s*0\s*;/);
     expect(plannedLineItemText).toMatch(/overflow-wrap:\s*anywhere\s*;/);
+  });
+
+  it("renders an accessible delete control for each current-period planned line", () => {
+    expect(existsSync(budgetLineDeleteFormPath)).toBe(true);
+    const page = source(pagePath);
+    const deleteForm = source(budgetLineDeleteFormPath);
+    const action = source(actionPath);
+    const actionState = source(budgetLineActionStatePath);
+
+    expect(page).toMatch(/BudgetLineDeleteForm/);
+    expect(page).toMatch(/budgetLine=\{budgetLine\}/);
+    expect(page).toMatch(/currentPeriodId=\{currentPeriod\?\.id \?\? ""\}/);
+    expect(deleteForm).toMatch(/["']use client["']/);
+    expect(deleteForm).toMatch(/useActionState\(deleteBudgetLineAction, initialBudgetLineActionState\)/);
+    expect(deleteForm).toMatch(/<form className="budget-line-delete-form" action=\{action\}/);
+    expect(deleteForm).toMatch(/type="hidden" name="periodId" value=\{currentPeriodId\}/);
+    expect(deleteForm).toMatch(/type="hidden" name="budgetLineId" value=\{budgetLine\.id\}/);
+    expect(deleteForm).toMatch(/aria-label=\{`Eliminar monto planeado/);
+    expect(deleteForm).toMatch(/aria-live="polite"/);
+    expect(deleteForm).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
+    expect(actionState).toMatch(/"budgetLineId"/);
+    expect(action).toMatch(/deleteBudgetLineAction/);
+    expect(action).toMatch(/deletePlannedBudgetLine/);
+    expect(action).toMatch(/stringField\(formData, "budgetLineId"\)/);
+    expect(action).toMatch(/revalidatePath\("\/budget"\)/);
+  });
+
+  it("treats planned-line delete-form currentPeriodId as display context while server code derives deletion authority", () => {
+    const page = source(pagePath);
+    const deleteForm = source(budgetLineDeleteFormPath);
+    const action = source(actionPath);
+    const workflow = source(resolve("src/modules/budget/application/planned-budget-line-workflow.ts"));
+
+    expect(page).toMatch(/currentPeriodId=\{currentPeriod\?\.id \?\? ""\}/);
+    expect(deleteForm).toMatch(/type="hidden" name="periodId" value=\{currentPeriodId\}/);
+    expect(`${action}\n${workflow}`).toMatch(/listPeriodsForOwner\(owner\.userId\)/);
+    expect(`${action}\n${workflow}`).toMatch(/buildCurrentMonthStartForTimeZone|selectDisplayedBudgetPeriod/);
+    expect(workflow).toMatch(/input\.periodId !== displayedPeriod\.id|displayedPeriod\.id !== input\.periodId/);
+    expect(workflow).toMatch(/periodId: displayedPeriod\.id/);
   });
 
   it("renders current-period transactions and summary data without client owner fields", () => {
