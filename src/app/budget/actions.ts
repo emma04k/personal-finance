@@ -16,6 +16,7 @@ import {
 } from "@/modules/budget/application/planned-budget-line-workflow";
 import {
   createPeriodTransaction,
+  deletePeriodTransaction,
   type PeriodTransactionError,
 } from "@/modules/budget/application/period-transaction-workflow";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
@@ -153,6 +154,33 @@ export async function createBudgetTransactionAction(
   };
 }
 
+export async function deleteBudgetTransactionAction(
+  previousState: BudgetTransactionActionState,
+  formData: FormData,
+): Promise<BudgetTransactionActionState> {
+  void previousState;
+
+  const owner = await requireCurrentOwnershipContext();
+  const repository = new PrismaOwnedPlanningRepository(prisma);
+  const result = await deletePeriodTransaction({
+    owner,
+    repository,
+    input: {
+      periodId: stringField(formData, "periodId"),
+      transactionId: stringField(formData, "transactionId"),
+    },
+  });
+
+  if (!result.ok) return transactionErrorState(result.error);
+
+  revalidatePath("/budget");
+  return {
+    status: "success",
+    message: "Transacción eliminada.",
+    fieldErrors: {},
+  };
+}
+
 function periodErrorState(error: MonthlyPlanningError): BudgetPeriodActionState {
   switch (error.code) {
     case "INVALID_MONTH_START":
@@ -261,6 +289,8 @@ function transactionErrorState(error: PeriodTransactionError): BudgetTransaction
       return transactionValidationError("description", "Escribe una descripción breve.");
     case "DESCRIPTION_TOO_LONG":
       return transactionValidationError("description", "La descripción debe tener máximo 255 caracteres.");
+    case "TRANSACTION_NOT_FOUND":
+      return transactionValidationError("transactionId", "No se encontró una transacción propia para eliminar.");
   }
 }
 

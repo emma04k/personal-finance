@@ -1,6 +1,7 @@
 import {
   type CreateCategoryForOwnerInput,
   type CreateTransactionForOwnerInput,
+  type DeleteTransactionForOwnerPeriodInput,
   DuplicateCategoryError,
   DuplicateMonthlyPeriodError,
   type CreatePeriodForOwnerInput,
@@ -56,6 +57,7 @@ type PlanningPrismaClient = {
   readonly transaction?: {
     readonly findMany: PrismaDelegateMethod;
     readonly create: PrismaDelegateMethod;
+    readonly deleteMany: PrismaDelegateMethod;
   };
 };
 
@@ -249,6 +251,22 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
 
     return toOwnedTransaction(record);
   }
+
+  async deleteTransactionForOwnerPeriod(
+    ownerUserId: string,
+    input: DeleteTransactionForOwnerPeriodInput,
+  ) {
+    const transaction = transactionDelegate(this.db);
+    const result = await deleteManyTransactions(transaction, {
+      where: {
+        id: input.transactionId,
+        userId: ownerUserId,
+        periodId: input.periodId,
+      },
+    });
+
+    return result.count > 0;
+  }
 }
 
 function findManyPeriods(
@@ -419,6 +437,15 @@ function createTransaction(
   return (transaction.create as (
     args: Record<string, unknown>
   ) => Promise<PrismaTransactionRecord>)(args);
+}
+
+function deleteManyTransactions(
+  transaction: TransactionPrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (transaction.deleteMany as (
+    args: Record<string, unknown>
+  ) => Promise<{ readonly count: number }>)(args);
 }
 
 function toDateOnly(value: Date | string) {

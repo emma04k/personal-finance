@@ -84,6 +84,11 @@ export type CreateTransactionForOwnerInput = {
   readonly description: string;
 };
 
+export type DeleteTransactionForOwnerPeriodInput = {
+  readonly periodId: string;
+  readonly transactionId: string;
+};
+
 export type OwnedPlanningRepository = {
   readonly listPeriodsForOwner: (ownerUserId: string) => Promise<readonly OwnedPeriod[]>;
   readonly findPeriodForOwner: (
@@ -123,6 +128,10 @@ export type OwnedPlanningRepository = {
     ownerUserId: string,
     input: CreateTransactionForOwnerInput,
   ) => Promise<OwnedTransaction>;
+  readonly deleteTransactionForOwnerPeriod: (
+    ownerUserId: string,
+    input: DeleteTransactionForOwnerPeriodInput,
+  ) => Promise<boolean>;
 };
 
 export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository {
@@ -280,5 +289,20 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
     };
     this.#transactions.push(transaction);
     return transaction;
+  }
+
+  async deleteTransactionForOwnerPeriod(
+    ownerUserId: string,
+    input: DeleteTransactionForOwnerPeriodInput,
+  ) {
+    const transactionIndex = this.#transactions.findIndex(
+      (transaction) => transaction.userId === ownerUserId
+        && transaction.periodId === input.periodId
+        && transaction.id === input.transactionId,
+    );
+
+    if (transactionIndex === -1) return false;
+    this.#transactions.splice(transactionIndex, 1);
+    return true;
   }
 }

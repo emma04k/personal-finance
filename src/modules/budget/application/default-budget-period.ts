@@ -1,3 +1,5 @@
+import type { OwnedPeriod } from "./owned-planning-repository";
+
 export const DEFAULT_BUDGET_TIME_ZONE = "America/Bogota";
 
 export function buildCurrentMonthStartForTimeZone({
@@ -20,4 +22,17 @@ export function buildCurrentMonthStartForTimeZone({
   }
 
   return `${year}-${month}`;
+}
+
+export function selectDisplayedBudgetPeriod({
+  now,
+  periods,
+  timeZone = DEFAULT_BUDGET_TIME_ZONE,
+}: {
+  readonly now: Date;
+  readonly periods: readonly OwnedPeriod[];
+  readonly timeZone?: string;
+}) {
+  const currentMonthStart = buildCurrentMonthStartForTimeZone({ now, timeZone });
+  return periods.find((period) => period.monthStart.slice(0, 7) === currentMonthStart) ?? periods[0];
 }

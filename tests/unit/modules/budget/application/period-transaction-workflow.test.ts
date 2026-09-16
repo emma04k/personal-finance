@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
-import { createPeriodTransaction } from "@/modules/budget/application/period-transaction-workflow";
+import {
+  createPeriodTransaction,
+  deletePeriodTransaction,
+} from "@/modules/budget/application/period-transaction-workflow";
 import type {
   OwnedCategory,
   OwnedPeriod,
@@ -21,6 +24,12 @@ const period: OwnedPeriod = {
   currencyCode: "COP",
   timeZone: "America/Bogota",
   note: null,
+};
+
+const nonCurrentOwnedPeriod: OwnedPeriod = {
+  ...period,
+  id: "10000000-0000-0000-0000-000000000002",
+  monthStart: "2026-02-01",
 };
 
 const expenseCategory: OwnedCategory = {
@@ -57,11 +66,107 @@ function repository(overrides: Partial<Pick<OwnedPlanningRepository,
   };
 }
 
+function deleteRepository(overrides: Partial<Pick<OwnedPlanningRepository,
+  "findPeriodForOwner" | "listPeriodsForOwner" | "deleteTransactionForOwnerPeriod"
+>> = {}) {
+  return {
+    findPeriodForOwner: vi.fn(async () => period),
+    listPeriodsForOwner: vi.fn(async () => [period]),
+    deleteTransactionForOwnerPeriod: vi.fn(async () => true),
+    ...overrides,
+  };
+}
+
 function periodWithCurrency(currencyCode: string): OwnedPeriod {
   return { ...period, currencyCode };
 }
 
 describe("period transaction workflow", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("deletes an owned transaction from the selected owned period", async () => {
+    const repo = deleteRepository();
+
+    const result = await deletePeriodTransaction({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        transactionId: transaction.id,
+      },
+    });
+
+    expect(result).toEqual({ ok: true, value: { deleted: true } });
+    expect(repo.listPeriodsForOwner).toHaveBeenCalledWith(owner.userId);
+    expect(repo.findPeriodForOwner).not.toHaveBeenCalled();
+    expect(repo.deleteTransactionForOwnerPeriod).toHaveBeenCalledWith(owner.userId, {
+      periodId: period.id,
+      transactionId: transaction.id,
+    });
+  });
+
+  it("rejects deleting transactions outside the authenticated owner's selected period", async () => {
+    const repo = deleteRepository({ deleteTransactionForOwnerPeriod: vi.fn(async () => false) });
+
+    const result = await deletePeriodTransaction({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        transactionId: "40000000-0000-0000-0000-000000000999",
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "TRANSACTION_NOT_FOUND", field: "transactionId" },
+    });
+    expect(repo.deleteTransactionForOwnerPeriod).toHaveBeenCalledWith(owner.userId, {
+      periodId: period.id,
+      transactionId: "40000000-0000-0000-0000-000000000999",
+    });
+  });
+
+  it("rejects deleting from periods not owned by the authenticated owner", async () => {
+    const repo = deleteRepository({ findPeriodForOwner: vi.fn(async () => null) });
+
+    const result = await deletePeriodTransaction({
+      owner,
+      repository: repo,
+      input: {
+        periodId: "10000000-0000-0000-0000-000000000999",
+        transactionId: transaction.id,
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "PERIOD_NOT_FOUND", field: "periodId" } });
+    expect(repo.deleteTransactionForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
+  it("rejects deleting an owned transaction from an owned period that is not the server-displayed current period", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    const repo = deleteRepository({
+      findPeriodForOwner: vi.fn(async () => nonCurrentOwnedPeriod),
+      listPeriodsForOwner: vi.fn(async () => [nonCurrentOwnedPeriod, period]),
+    });
+
+    const result = await deletePeriodTransaction({
+      owner,
+      repository: repo,
+      input: {
+        periodId: nonCurrentOwnedPeriod.id,
+        transactionId: transaction.id,
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "PERIOD_NOT_FOUND", field: "periodId" } });
+    expect(repo.listPeriodsForOwner).toHaveBeenCalledWith(owner.userId);
+    expect(repo.deleteTransactionForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
   it("creates an actual transaction for the authenticated owner's active category and monthly period", async () => {
     const repo = repository();
 

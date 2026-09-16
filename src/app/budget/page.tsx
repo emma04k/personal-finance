@@ -13,6 +13,7 @@ import type {
 import {
   DEFAULT_BUDGET_TIME_ZONE,
   buildCurrentMonthStartForTimeZone,
+  selectDisplayedBudgetPeriod,
 } from "@/modules/budget/application/default-budget-period";
 import type {
   AggregateMoney,
@@ -29,6 +30,7 @@ import { BudgetLineForm } from "./budget-line-form";
 import { BudgetCategoryForm } from "./budget-category-form";
 import { BudgetPeriodForm } from "./budget-period-form";
 import { BudgetTransactionForm } from "./budget-transaction-form";
+import { BudgetTransactionDeleteForm } from "./budget-transaction-delete-form";
 
 type BudgetPlanningState =
   | Readonly<{
@@ -84,11 +86,11 @@ async function loadBudgetPlanningState(): Promise<BudgetPlanningState> {
       repository.listPeriodsForOwner(owner.userId),
       repository.listActiveCategoriesForOwner(owner.userId),
     ]);
-    const currentMonthStart = buildCurrentMonthStartForTimeZone({
+    const currentPeriod = selectDisplayedBudgetPeriod({
+      periods,
       now: new Date(),
       timeZone: DEFAULT_BUDGET_TIME_ZONE,
     });
-    const currentPeriod = periods.find((period) => period.monthStart === currentMonthStart) ?? periods[0];
     const plannedBudgetLines = currentPeriod
       ? await repository.listPlannedBudgetLinesForOwnerPeriod(owner.userId, currentPeriod.id)
       : [];
@@ -295,6 +297,10 @@ function BudgetPlanningContent({
                 <span>{transaction.description}</span>
                 <strong>{formatTransactionAmount(transaction.amountMinor, transaction.currencyCode, transaction.direction)}</strong>
                 <small>{transaction.categoryName} · {formatCategoryTypeLabel(transaction.categoryType)} · {transaction.occurredOn}</small>
+                <BudgetTransactionDeleteForm
+                  transaction={transaction}
+                  currentPeriodId={currentPeriod?.id ?? ""}
+                />
               </li>
             ))}
           </ul>

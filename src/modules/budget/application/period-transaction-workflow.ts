@@ -1,4 +1,8 @@
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
+import {
+  DEFAULT_BUDGET_TIME_ZONE,
+  selectDisplayedBudgetPeriod,
+} from "@/modules/budget/application/default-budget-period";
 import { parseCurrencyAmountToMinorUnits } from "@/modules/finance/application/currency-amount";
 import { createCurrencyCode, type CurrencyCodeError } from "@/modules/finance/domain/money";
 import { err, ok, type Result } from "@/modules/finance/domain/result";
@@ -19,14 +23,19 @@ type PeriodTransactionValidationError = Readonly<{
     | "INVALID_OCCURRED_ON"
     | "DATE_OUTSIDE_PERIOD"
     | "DESCRIPTION_REQUIRED"
-    | "DESCRIPTION_TOO_LONG";
-  field: "amount" | "periodId" | "categoryId" | "currencyCode" | "occurredOn" | "description";
+    | "DESCRIPTION_TOO_LONG"
+    | "TRANSACTION_NOT_FOUND";
+  field: "amount" | "periodId" | "categoryId" | "currencyCode" | "occurredOn" | "description" | "transactionId";
 }>;
 
 export type PeriodTransactionError = PeriodTransactionValidationError | CurrencyCodeError;
 
 export type CreatePeriodTransactionResult = Readonly<{
   transaction: OwnedTransaction;
+}>;
+
+export type DeletePeriodTransactionResult = Readonly<{
+  deleted: true;
 }>;
 
 const allowedCategoryTypes = new Set<OwnedCategory["type"]>([
@@ -104,6 +113,40 @@ export async function createPeriodTransaction({
     description,
   });
   return ok({ transaction });
+}
+
+export async function deletePeriodTransaction({
+  input,
+  owner,
+  repository,
+}: {
+  readonly owner: OwnershipContext;
+  readonly repository: Pick<
+    OwnedPlanningRepository,
+    "listPeriodsForOwner" | "deleteTransactionForOwnerPeriod"
+  >;
+  readonly input: {
+    readonly periodId: string;
+    readonly transactionId: string;
+  };
+}): Promise<Result<DeletePeriodTransactionResult, PeriodTransactionError>> {
+  const periods = await repository.listPeriodsForOwner(owner.userId);
+  const displayedPeriod = selectDisplayedBudgetPeriod({
+    periods,
+    now: new Date(),
+    timeZone: DEFAULT_BUDGET_TIME_ZONE,
+  });
+  if (!displayedPeriod || input.periodId !== displayedPeriod.id) {
+    return err({ code: "PERIOD_NOT_FOUND", field: "periodId" });
+  }
+
+  const deleted = await repository.deleteTransactionForOwnerPeriod(owner.userId, {
+    periodId: displayedPeriod.id,
+    transactionId: input.transactionId,
+  });
+
+  if (!deleted) return err({ code: "TRANSACTION_NOT_FOUND", field: "transactionId" });
+  return ok({ deleted: true });
 }
 
 function isCanonicalDate(value: string) {
