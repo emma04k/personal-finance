@@ -31,6 +31,7 @@ import { BudgetLineDeleteForm } from "./budget-line-delete-form";
 import { BudgetCategoryForm } from "./budget-category-form";
 import { BudgetPeriodForm } from "./budget-period-form";
 import { BudgetTransactionForm } from "./budget-transaction-form";
+import { BudgetTransactionEditForm } from "./budget-transaction-edit-form";
 import { BudgetTransactionDeleteForm } from "./budget-transaction-delete-form";
 
 type BudgetPlanningState =
@@ -302,6 +303,11 @@ function BudgetPlanningContent({
                 <span>{transaction.description}</span>
                 <strong>{formatTransactionAmount(transaction.amountMinor, transaction.currencyCode, transaction.direction)}</strong>
                 <small>{transaction.categoryName} · {formatCategoryTypeLabel(transaction.categoryType)} · {transaction.occurredOn}</small>
+                <BudgetTransactionEditForm
+                  categories={categories}
+                  transaction={transaction}
+                  currentPeriodId={currentPeriod?.id ?? ""}
+                />
                 <BudgetTransactionDeleteForm
                   transaction={transaction}
                   currentPeriodId={currentPeriod?.id ?? ""}

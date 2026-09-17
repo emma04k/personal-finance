@@ -3,6 +3,7 @@ import type { OwnershipContext } from "@/modules/auth/application/ownership-cont
 import {
   createPeriodTransaction,
   deletePeriodTransaction,
+  updatePeriodTransaction,
 } from "@/modules/budget/application/period-transaction-workflow";
 import type {
   OwnedCategory,
@@ -77,6 +78,22 @@ function deleteRepository(overrides: Partial<Pick<OwnedPlanningRepository,
   };
 }
 
+function editRepository(overrides: Partial<Pick<OwnedPlanningRepository,
+  "listPeriodsForOwner" | "findCategoryForOwner" | "updateTransactionForOwnerPeriod"
+>> = {}) {
+  return {
+    listPeriodsForOwner: vi.fn(async () => [period]),
+    findCategoryForOwner: vi.fn(async () => expenseCategory),
+    updateTransactionForOwnerPeriod: vi.fn(async () => ({
+      ...transaction,
+      amountMinor: "55500",
+      occurredOn: "2026-03-20",
+      description: "Compra editada",
+    })),
+    ...overrides,
+  };
+}
+
 function periodWithCurrency(currencyCode: string): OwnedPeriod {
   return { ...period, currencyCode };
 }
@@ -84,6 +101,94 @@ function periodWithCurrency(currencyCode: string): OwnedPeriod {
 describe("period transaction workflow", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("updates an owned transaction in the server-displayed current period", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    const repo = editRepository();
+
+    const result = await updatePeriodTransaction({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        transactionId: transaction.id,
+        categoryId: expenseCategory.id,
+        amount: "555.00",
+        currencyCode: "COP",
+        occurredOn: "2026-03-20",
+        description: "  Compra editada  ",
+      },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      value: { transaction: { ...transaction, amountMinor: "55500", occurredOn: "2026-03-20", description: "Compra editada" } },
+    });
+    expect(repo.listPeriodsForOwner).toHaveBeenCalledWith(owner.userId);
+    expect(repo.findCategoryForOwner).toHaveBeenCalledWith(owner.userId, expenseCategory.id);
+    expect(repo.updateTransactionForOwnerPeriod).toHaveBeenCalledWith(owner.userId, {
+      periodId: period.id,
+      transactionId: transaction.id,
+      categoryId: expenseCategory.id,
+      direction: "OUTFLOW",
+      amountMinor: "55500",
+      currencyCode: "COP",
+      occurredOn: "2026-03-20",
+      description: "Compra editada",
+    });
+  });
+
+  it("reports a missing transaction when the owner-period scoped update matches no row", async () => {
+    const repo = editRepository({ updateTransactionForOwnerPeriod: vi.fn(async () => null) });
+
+    const result = await updatePeriodTransaction({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        transactionId: "40000000-0000-0000-0000-000000000999",
+        categoryId: expenseCategory.id,
+        amount: "10.00",
+        currencyCode: "COP",
+        occurredOn: "2026-03-15",
+        description: "Compra semanal",
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "TRANSACTION_NOT_FOUND", field: "transactionId" },
+    });
+    expect(repo.updateTransactionForOwnerPeriod).toHaveBeenCalledWith(owner.userId, expect.objectContaining({
+      periodId: period.id,
+      transactionId: "40000000-0000-0000-0000-000000000999",
+    }));
+  });
+
+  it("rejects editing an owned transaction from an owned non-current period before updating", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    const repo = editRepository({ listPeriodsForOwner: vi.fn(async () => [nonCurrentOwnedPeriod, period]) });
+
+    const result = await updatePeriodTransaction({
+      owner,
+      repository: repo,
+      input: {
+        periodId: nonCurrentOwnedPeriod.id,
+        transactionId: transaction.id,
+        categoryId: expenseCategory.id,
+        amount: "10.00",
+        currencyCode: "COP",
+        occurredOn: "2026-02-15",
+        description: "Compra semanal",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "PERIOD_NOT_FOUND", field: "periodId" } });
+    expect(repo.findCategoryForOwner).not.toHaveBeenCalled();
+    expect(repo.updateTransactionForOwnerPeriod).not.toHaveBeenCalled();
   });
 
   it("deletes an owned transaction from the selected owned period", async () => {

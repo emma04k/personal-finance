@@ -19,6 +19,7 @@ import {
   createPeriodTransaction,
   deletePeriodTransaction,
   type PeriodTransactionError,
+  updatePeriodTransaction,
 } from "@/modules/budget/application/period-transaction-workflow";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
@@ -182,6 +183,38 @@ export async function createBudgetTransactionAction(
   };
 }
 
+export async function updateBudgetTransactionAction(
+  previousState: BudgetTransactionActionState,
+  formData: FormData,
+): Promise<BudgetTransactionActionState> {
+  void previousState;
+
+  const owner = await requireCurrentOwnershipContext();
+  const repository = new PrismaOwnedPlanningRepository(prisma);
+  const result = await updatePeriodTransaction({
+    owner,
+    repository,
+    input: {
+      periodId: stringField(formData, "periodId"),
+      transactionId: stringField(formData, "transactionId"),
+      categoryId: stringField(formData, "categoryId"),
+      amount: stringField(formData, "amount"),
+      currencyCode: stringField(formData, "currencyCode"),
+      occurredOn: stringField(formData, "occurredOn"),
+      description: stringField(formData, "description"),
+    },
+  });
+
+  if (!result.ok) return transactionErrorState(result.error, "edit");
+
+  revalidatePath("/budget");
+  return {
+    status: "success",
+    message: "Transacción actualizada.",
+    fieldErrors: {},
+  };
+}
+
 export async function deleteBudgetTransactionAction(
   previousState: BudgetTransactionActionState,
   formData: FormData,
@@ -293,7 +326,10 @@ function budgetLineValidationError(
   };
 }
 
-function transactionErrorState(error: PeriodTransactionError): BudgetTransactionActionState {
+function transactionErrorState(
+  error: PeriodTransactionError,
+  operation: "create" | "edit" | "delete" = "delete",
+): BudgetTransactionActionState {
   switch (error.code) {
     case "INVALID_TRANSACTION_AMOUNT":
       return transactionValidationError("amount", "Usa un monto válido con los decimales permitidos para la moneda.");
@@ -320,7 +356,12 @@ function transactionErrorState(error: PeriodTransactionError): BudgetTransaction
     case "DESCRIPTION_TOO_LONG":
       return transactionValidationError("description", "La descripción debe tener máximo 255 caracteres.");
     case "TRANSACTION_NOT_FOUND":
-      return transactionValidationError("transactionId", "No se encontró una transacción propia para eliminar.");
+      return transactionValidationError(
+        "transactionId",
+        operation === "edit"
+          ? "No se encontró una transacción propia para editar."
+          : "No se encontró una transacción propia para eliminar.",
+      );
   }
 }
 

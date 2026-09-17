@@ -38,6 +38,10 @@ export type DeletePeriodTransactionResult = Readonly<{
   deleted: true;
 }>;
 
+export type UpdatePeriodTransactionResult = Readonly<{
+  transaction: OwnedTransaction;
+}>;
+
 const allowedCategoryTypes = new Set<OwnedCategory["type"]>([
   "INCOME",
   "EXPENSE",
@@ -112,6 +116,87 @@ export async function createPeriodTransaction({
     occurredOn: input.occurredOn,
     description,
   });
+  return ok({ transaction });
+}
+
+export async function updatePeriodTransaction({
+  input,
+  owner,
+  repository,
+}: {
+  readonly owner: OwnershipContext;
+  readonly repository: Pick<
+    OwnedPlanningRepository,
+    "listPeriodsForOwner" | "findCategoryForOwner" | "updateTransactionForOwnerPeriod"
+  >;
+  readonly input: {
+    readonly periodId: string;
+    readonly transactionId: string;
+    readonly categoryId: string;
+    readonly amount: unknown;
+    readonly currencyCode: string;
+    readonly occurredOn: string;
+    readonly description: string;
+  };
+}): Promise<Result<UpdatePeriodTransactionResult, PeriodTransactionError>> {
+  const currency = createCurrencyCode(input.currencyCode);
+  if (!currency.ok) return currency;
+
+  const amountMinor = parseCurrencyAmountToMinorUnits(input.amount, currency.value);
+  if (amountMinor === null || BigInt(amountMinor) <= BigInt("0")) {
+    return err({ code: "INVALID_TRANSACTION_AMOUNT", field: "amount" });
+  }
+
+  const description = input.description.trim();
+  if (description.length === 0) {
+    return err({ code: "DESCRIPTION_REQUIRED", field: "description" });
+  }
+  if (description.length > 255) {
+    return err({ code: "DESCRIPTION_TOO_LONG", field: "description" });
+  }
+
+  const periods = await repository.listPeriodsForOwner(owner.userId);
+  const displayedPeriod = selectDisplayedBudgetPeriod({
+    periods,
+    now: new Date(),
+    timeZone: DEFAULT_BUDGET_TIME_ZONE,
+  });
+  if (!displayedPeriod || input.periodId !== displayedPeriod.id) {
+    return err({ code: "PERIOD_NOT_FOUND", field: "periodId" });
+  }
+
+  if (displayedPeriod.currencyCode !== currency.value) {
+    return err({ code: "CURRENCY_MISMATCH", field: "currencyCode" });
+  }
+
+  if (!isCanonicalDate(input.occurredOn)) {
+    return err({ code: "INVALID_OCCURRED_ON", field: "occurredOn" });
+  }
+  if (!isDateInsidePeriodMonth(input.occurredOn, displayedPeriod.monthStart)) {
+    return err({ code: "DATE_OUTSIDE_PERIOD", field: "occurredOn" });
+  }
+
+  const category = await repository.findCategoryForOwner(owner.userId, input.categoryId);
+  if (!category) return err({ code: "CATEGORY_NOT_FOUND", field: "categoryId" });
+  if (category.archivedAt !== null) {
+    return err({ code: "CATEGORY_NOT_ACTIVE", field: "categoryId" });
+  }
+  if (!allowedCategoryTypes.has(category.type)) {
+    return err({ code: "INVALID_CATEGORY_TYPE", field: "categoryId" });
+  }
+
+  const transaction = await repository.updateTransactionForOwnerPeriod(owner.userId, {
+    periodId: displayedPeriod.id,
+    transactionId: input.transactionId,
+    categoryId: category.id,
+    direction: category.type === "INCOME" ? "INFLOW" : "OUTFLOW",
+    amountMinor,
+    currencyCode: currency.value,
+    occurredOn: input.occurredOn,
+    description,
+  });
+
+  if (!transaction) return err({ code: "TRANSACTION_NOT_FOUND", field: "transactionId" });
   return ok({ transaction });
 }
 
