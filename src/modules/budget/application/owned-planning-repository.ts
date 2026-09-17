@@ -89,6 +89,17 @@ export type CreateTransactionForOwnerInput = {
   readonly description: string;
 };
 
+export type UpdateTransactionForOwnerPeriodInput = {
+  readonly periodId: string;
+  readonly transactionId: string;
+  readonly categoryId: string;
+  readonly direction: OwnedTransaction["direction"];
+  readonly amountMinor: string;
+  readonly currencyCode: string;
+  readonly occurredOn: string;
+  readonly description: string;
+};
+
 export type DeleteTransactionForOwnerPeriodInput = {
   readonly periodId: string;
   readonly transactionId: string;
@@ -137,6 +148,10 @@ export type OwnedPlanningRepository = {
     ownerUserId: string,
     input: CreateTransactionForOwnerInput,
   ) => Promise<OwnedTransaction>;
+  readonly updateTransactionForOwnerPeriod: (
+    ownerUserId: string,
+    input: UpdateTransactionForOwnerPeriodInput,
+  ) => Promise<OwnedTransaction | null>;
   readonly deleteTransactionForOwnerPeriod: (
     ownerUserId: string,
     input: DeleteTransactionForOwnerPeriodInput,
@@ -313,6 +328,36 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
     };
     this.#transactions.push(transaction);
     return transaction;
+  }
+
+  async updateTransactionForOwnerPeriod(
+    ownerUserId: string,
+    input: UpdateTransactionForOwnerPeriodInput,
+  ) {
+    const transactionIndex = this.#transactions.findIndex(
+      (transaction) => transaction.userId === ownerUserId
+        && transaction.periodId === input.periodId
+        && transaction.id === input.transactionId,
+    );
+
+    if (transactionIndex === -1) return null;
+    const category = this.#categories.find(
+      (record) => record.userId === ownerUserId && record.id === input.categoryId,
+    );
+    const existing = this.#transactions[transactionIndex];
+    const updated: OwnedTransaction = {
+      ...existing,
+      categoryId: input.categoryId,
+      categoryName: category?.name ?? "",
+      categoryType: category?.type ?? "EXPENSE",
+      direction: input.direction,
+      amountMinor: input.amountMinor,
+      currencyCode: input.currencyCode,
+      occurredOn: input.occurredOn,
+      description: input.description,
+    };
+    this.#transactions.splice(transactionIndex, 1, updated);
+    return updated;
   }
 
   async deleteTransactionForOwnerPeriod(

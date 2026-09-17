@@ -11,6 +11,7 @@ import {
   type OwnedPeriod,
   type OwnedPlanningRepository,
   type OwnedTransaction,
+  type UpdateTransactionForOwnerPeriodInput,
   type UpsertPlannedBudgetLineForOwnerInput,
 } from "@/modules/budget/application/owned-planning-repository";
 
@@ -59,6 +60,8 @@ type PlanningPrismaClient = {
   readonly transaction?: {
     readonly findMany: PrismaDelegateMethod;
     readonly create: PrismaDelegateMethod;
+    readonly updateMany: PrismaDelegateMethod;
+    readonly findFirst: PrismaDelegateMethod;
     readonly deleteMany: PrismaDelegateMethod;
   };
 };
@@ -271,6 +274,38 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
     return toOwnedTransaction(record);
   }
 
+  async updateTransactionForOwnerPeriod(
+    ownerUserId: string,
+    input: UpdateTransactionForOwnerPeriodInput,
+  ) {
+    const transaction = transactionDelegate(this.db);
+    const ownerTransactionWhere = {
+      id: input.transactionId,
+      userId: ownerUserId,
+      periodId: input.periodId,
+    };
+    const updateResult = await updateManyTransactions(transaction, {
+      where: ownerTransactionWhere,
+      data: {
+        categoryId: input.categoryId,
+        direction: input.direction,
+        amountMinor: BigInt(input.amountMinor),
+        currencyCode: input.currencyCode,
+        occurredOn: toDateOnlyDate(input.occurredOn),
+        description: input.description,
+      },
+    });
+
+    if (updateResult.count === 0) return null;
+
+    const record = await findFirstTransaction(transaction, {
+      where: { ...ownerTransactionWhere, category: { isNot: null } },
+      include: { category: { select: { name: true, type: true } } },
+    });
+    if (!record) throw new Error("Updated transaction was not found.");
+    return toOwnedTransaction(record);
+  }
+
   async deleteTransactionForOwnerPeriod(
     ownerUserId: string,
     input: DeleteTransactionForOwnerPeriodInput,
@@ -466,6 +501,24 @@ function createTransaction(
   return (transaction.create as (
     args: Record<string, unknown>
   ) => Promise<PrismaTransactionRecord>)(args);
+}
+
+function updateManyTransactions(
+  transaction: TransactionPrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (transaction.updateMany as (
+    args: Record<string, unknown>
+  ) => Promise<{ readonly count: number }>)(args);
+}
+
+function findFirstTransaction(
+  transaction: TransactionPrismaDelegate,
+  args: Record<string, unknown>,
+) {
+  return (transaction.findFirst as (
+    args: Record<string, unknown>
+  ) => Promise<PrismaTransactionRecord | null>)(args);
 }
 
 function deleteManyTransactions(

@@ -10,6 +10,7 @@ const budgetLineFormPath = resolve("src/app/budget/budget-line-form.tsx");
 const budgetLineDeleteFormPath = resolve("src/app/budget/budget-line-delete-form.tsx");
 const transactionActionStatePath = resolve("src/app/budget/budget-transaction-action-state.ts");
 const transactionFormPath = resolve("src/app/budget/budget-transaction-form.tsx");
+const transactionEditFormPath = resolve("src/app/budget/budget-transaction-edit-form.tsx");
 const transactionDeleteFormPath = resolve("src/app/budget/budget-transaction-delete-form.tsx");
 const categoryActionStatePath = resolve("src/app/budget/budget-category-action-state.ts");
 const categoryFormPath = resolve("src/app/budget/budget-category-form.tsx");
@@ -415,6 +416,52 @@ describe("budget planning page contract", () => {
     expect(page).toMatch(/<BudgetTransactionForm[\s\S]*currentPeriod=\{state\.currentPeriod\}/);
     expect(form).toMatch(/<input type="hidden" name="periodId" value=\{currentPeriod\?\.id \?\? ""\} \/>/);
     expect(form).not.toMatch(/periods\.map|<option key=\{period\.id\}/);
+  });
+
+  it("renders an accessible edit control for each current-period transaction", () => {
+    expect(existsSync(transactionEditFormPath)).toBe(true);
+    const page = source(pagePath);
+    const editForm = source(transactionEditFormPath);
+    const action = source(actionPath);
+    const actionState = source(transactionActionStatePath);
+
+    expect(page).toMatch(/BudgetTransactionEditForm/);
+    expect(page).toMatch(/transaction=\{transaction\}/);
+    expect(page).toMatch(/currentPeriodId=\{currentPeriod\?\.id \?\? ""\}/);
+    expect(editForm).toMatch(/["']use client["']/);
+    expect(editForm).toMatch(/useActionState\(updateBudgetTransactionAction, initialBudgetTransactionActionState\)/);
+    expect(editForm).toMatch(/<form className="budget-transaction-edit-form" action=\{action\}/);
+    expect(editForm).toMatch(/type="hidden" name="periodId" value=\{currentPeriodId\}/);
+    expect(editForm).toMatch(/type="hidden" name="transactionId" value=\{transaction\.id\}/);
+    expect(editForm).toMatch(/name="categoryId"/);
+    expect(editForm).toMatch(/name="amount"/);
+    expect(editForm).toMatch(/name="occurredOn"/);
+    expect(editForm).toMatch(/name="description"/);
+    expect(editForm).toMatch(/name="currencyCode"/);
+    expect(editForm).toMatch(/defaultValue=\{transaction\.description\}/);
+    expect(editForm).toMatch(/defaultValue=\{transaction\.occurredOn\}/);
+    expect(editForm).toMatch(/readOnly/);
+    expect(editForm).toMatch(/aria-live="polite"/);
+    expect(editForm).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
+    expect(actionState).toMatch(/"transactionId"/);
+    expect(action).toMatch(/updateBudgetTransactionAction/);
+    expect(action).toMatch(/updatePeriodTransaction/);
+    expect(action).toMatch(/stringField\(formData, "transactionId"\)/);
+    expect(action).toMatch(/revalidatePath\("\/budget"\)/);
+  });
+
+  it("treats edit-form currentPeriodId as display context while server code derives edit authority", () => {
+    const page = source(pagePath);
+    const editForm = source(transactionEditFormPath);
+    const action = source(actionPath);
+    const workflow = source(periodTransactionWorkflowPath);
+
+    expect(page).toMatch(/currentPeriodId=\{currentPeriod\?\.id \?\? ""\}/);
+    expect(editForm).toMatch(/type="hidden" name="periodId" value=\{currentPeriodId\}/);
+    expect(`${action}\n${workflow}`).toMatch(/listPeriodsForOwner\(owner\.userId\)/);
+    expect(`${action}\n${workflow}`).toMatch(/buildCurrentMonthStartForTimeZone|selectDisplayedBudgetPeriod/);
+    expect(workflow).toMatch(/input\.periodId !== displayedPeriod\.id|displayedPeriod\.id !== input\.periodId/);
+    expect(workflow).toMatch(/periodId: displayedPeriod\.id/);
   });
 
   it("renders an accessible delete control for each current-period transaction", () => {

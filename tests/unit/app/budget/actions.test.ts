@@ -85,6 +85,19 @@ const mocks = vi.hoisted(() => {
     description: input.description,
   }));
   const deletePlannedBudgetLineForOwnerPeriod = vi.fn(async () => true);
+  const updateTransactionForOwnerPeriod = vi.fn(async (_ownerUserId: string, input) => ({
+    id: input.transactionId,
+    userId: owner.userId,
+    periodId: input.periodId,
+    categoryId: input.categoryId,
+    categoryName: "Groceries",
+    categoryType: "EXPENSE" as const,
+    direction: input.direction,
+    amountMinor: input.amountMinor,
+    currencyCode: input.currencyCode,
+    occurredOn: input.occurredOn,
+    description: input.description,
+  }));
   const deleteTransactionForOwnerPeriod = vi.fn(async () => true);
   const repository: Pick<
     OwnedPlanningRepository,
@@ -97,6 +110,7 @@ const mocks = vi.hoisted(() => {
     | "upsertPlannedBudgetLineForOwner"
     | "deletePlannedBudgetLineForOwnerPeriod"
     | "createTransactionForOwner"
+    | "updateTransactionForOwnerPeriod"
     | "deleteTransactionForOwnerPeriod"
   > = {
     listPeriodsForOwner,
@@ -108,6 +122,7 @@ const mocks = vi.hoisted(() => {
     upsertPlannedBudgetLineForOwner,
     deletePlannedBudgetLineForOwnerPeriod,
     createTransactionForOwner,
+    updateTransactionForOwnerPeriod,
     deleteTransactionForOwnerPeriod,
   };
 
@@ -125,6 +140,7 @@ const mocks = vi.hoisted(() => {
     upsertPlannedBudgetLineForOwner,
     deletePlannedBudgetLineForOwnerPeriod,
     createTransactionForOwner,
+    updateTransactionForOwnerPeriod,
     deleteTransactionForOwnerPeriod,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
     revalidatePath: vi.fn(),
@@ -156,6 +172,7 @@ import {
   createBudgetTransactionAction,
   deleteBudgetLineAction,
   deleteBudgetTransactionAction,
+  updateBudgetTransactionAction,
 } from "@/app/budget/actions";
 import { initialBudgetLineActionState } from "@/app/budget/budget-line-action-state";
 import { initialBudgetTransactionActionState } from "@/app/budget/budget-transaction-action-state";
@@ -197,6 +214,12 @@ function transactionForm(overrides: Partial<Record<"periodId" | "categoryId" | "
   formData.set("occurredOn", overrides.occurredOn ?? "2026-03-15");
   formData.set("description", overrides.description ?? "Compra semanal");
   if (overrides.userId !== undefined) formData.set("userId", overrides.userId);
+  return formData;
+}
+
+function editTransactionForm(overrides: Partial<Record<"periodId" | "transactionId" | "categoryId" | "amount" | "currencyCode" | "occurredOn" | "description" | "userId", string>> = {}) {
+  const formData = transactionForm(overrides);
+  formData.set("transactionId", overrides.transactionId ?? "40000000-0000-0000-0000-000000000001");
   return formData;
 }
 
@@ -266,6 +289,19 @@ describe("budget period server action", () => {
     mocks.deletePlannedBudgetLineForOwnerPeriod.mockResolvedValue(true);
     mocks.createTransactionForOwner.mockImplementation(async (_ownerUserId: string, input) => ({
       id: "40000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      periodId: input.periodId,
+      categoryId: input.categoryId,
+      categoryName: "Groceries",
+      categoryType: "EXPENSE",
+      direction: input.direction,
+      amountMinor: input.amountMinor,
+      currencyCode: input.currencyCode,
+      occurredOn: input.occurredOn,
+      description: input.description,
+    }));
+    mocks.updateTransactionForOwnerPeriod.mockImplementation(async (_ownerUserId: string, input) => ({
+      id: input.transactionId,
       userId: mocks.owner.userId,
       periodId: input.periodId,
       categoryId: input.categoryId,
@@ -689,6 +725,78 @@ describe("budget period server action", () => {
       fieldErrors: { [field]: message },
     });
     expect(mocks.createTransactionForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("updates period transactions from authenticated owner context without accepting client owner ids", async () => {
+    const result = await updateBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      editTransactionForm({
+        userId: "00000000-0000-0000-0000-000000000999",
+        amount: "555.00",
+        occurredOn: "2026-03-20",
+        description: "Compra editada",
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Transacción actualizada.",
+      fieldErrors: {},
+    });
+    expect(mocks.requireCurrentOwnershipContext).toHaveBeenCalled();
+    expect(mocks.updateTransactionForOwnerPeriod).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: "10000000-0000-0000-0000-000000000001",
+      transactionId: "40000000-0000-0000-0000-000000000001",
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      direction: "OUTFLOW",
+      amountMinor: "55500",
+      currencyCode: "COP",
+      occurredOn: "2026-03-20",
+      description: "Compra editada",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/budget");
+  });
+
+  it("returns clear edit feedback when the transaction is missing or outside the owner's period", async () => {
+    mocks.updateTransactionForOwnerPeriod.mockResolvedValueOnce(null as never);
+
+    const result = await updateBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      editTransactionForm({ transactionId: "40000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "No se encontró una transacción propia para editar.",
+      fieldErrors: { transactionId: "No se encontró una transacción propia para editar." },
+    });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects edit submissions for an owned non-current period instead of trusting the hidden period id", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    mocks.listPeriodsForOwner.mockResolvedValueOnce([
+      mocks.nonCurrentOwnedPeriod,
+      mocks.currentPeriod,
+    ]);
+
+    const result = await updateBudgetTransactionAction(
+      initialBudgetTransactionActionState,
+      editTransactionForm({
+        periodId: mocks.nonCurrentOwnedPeriod.id,
+        occurredOn: "2026-02-15",
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Selecciona un periodo propio válido.",
+      fieldErrors: { periodId: "Selecciona un periodo propio válido." },
+    });
+    expect(mocks.listPeriodsForOwner).toHaveBeenCalledWith(mocks.owner.userId);
+    expect(mocks.updateTransactionForOwnerPeriod).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 

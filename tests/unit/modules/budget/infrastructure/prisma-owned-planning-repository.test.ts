@@ -767,6 +767,94 @@ describe("Prisma owner-scoped planning repository", () => {
     });
   });
 
+  it("updates actual transactions only through owner-period-id scoped filters", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "40000000-0000-0000-0000-000000000001",
+      userId: ownerUserId,
+      periodId: "10000000-0000-0000-0000-000000000001",
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      direction: "OUTFLOW" as const,
+      amountMinor: BigInt("55500"),
+      currencyCode: "COP",
+      occurredOn: new Date("2026-03-20T00:00:00.000Z"),
+      description: "Compra editada",
+      category: { name: "Groceries", type: "EXPENSE" as const },
+    });
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      transaction: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn(), updateMany, findFirst } as never,
+    });
+
+    await expect(
+      repository.updateTransactionForOwnerPeriod(ownerUserId, {
+        periodId: "10000000-0000-0000-0000-000000000001",
+        transactionId: "40000000-0000-0000-0000-000000000001",
+        categoryId: "20000000-0000-0000-0000-000000000001",
+        direction: "OUTFLOW",
+        amountMinor: "55500",
+        currencyCode: "COP",
+        occurredOn: "2026-03-20",
+        description: "Compra editada",
+      }),
+    ).resolves.toMatchObject({
+      id: "40000000-0000-0000-0000-000000000001",
+      amountMinor: "55500",
+      occurredOn: "2026-03-20",
+      description: "Compra editada",
+    });
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "40000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+      },
+      data: {
+        categoryId: "20000000-0000-0000-0000-000000000001",
+        direction: "OUTFLOW",
+        amountMinor: BigInt("55500"),
+        currencyCode: "COP",
+        occurredOn: new Date("2026-03-20T00:00:00.000Z"),
+        description: "Compra editada",
+      },
+    });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "40000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        periodId: "10000000-0000-0000-0000-000000000001",
+        category: { isNot: null },
+      },
+      include: { category: { select: { name: true, type: true } } },
+    });
+  });
+
+  it("reports null when no owner-period scoped transaction is updated", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findFirst = vi.fn();
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      transaction: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn(), updateMany, findFirst } as never,
+    });
+
+    await expect(
+      repository.updateTransactionForOwnerPeriod(ownerUserId, {
+        periodId: otherPeriodId,
+        transactionId: "40000000-0000-0000-0000-000000000999",
+        categoryId: "20000000-0000-0000-0000-000000000001",
+        direction: "OUTFLOW",
+        amountMinor: "55500",
+        currencyCode: "COP",
+        occurredOn: "2026-03-20",
+        description: "Compra editada",
+      }),
+    ).resolves.toBeNull();
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
   it("deletes actual transactions only through owner-period scoped filters", async () => {
     const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new PrismaOwnedPlanningRepository({
