@@ -15,7 +15,7 @@ describe("AppShell", () => {
     const navigation = screen.getByRole("navigation", {
       name: "Navegación principal",
     });
-    expect(navigation).toHaveTextContent("Resumen");
+    expect(navigation).toHaveTextContent("Dashboard");
     expect(navigation).toHaveTextContent("Presupuesto");
     expect(navigation).toHaveTextContent("Añadir");
     expect(navigation).toHaveTextContent("Deudas");
