@@ -19,7 +19,7 @@ import type {
 import { useEffect, useRef, useState } from "react";
 
 const navigationItems = [
-  { label: "Resumen", href: "/", icon: LayoutDashboard },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Presupuesto", href: "/budget", icon: WalletCards },
   { label: "Deudas", href: "/debts", icon: Banknote },
   { label: "Más", href: "/more", icon: Menu },
@@ -128,7 +128,10 @@ export function AppShell({
       </div>
 
       <nav className="bottom-nav" aria-label="Navegación principal">
-        <NavLink {...navigationItems[0]} current={activeHref === "/"} />
+        <NavLink
+          {...navigationItems[0]}
+          current={activeHref === navigationItems[0].href}
+        />
         <NavLink
           {...navigationItems[1]}
           current={activeHref === navigationItems[1].href}
