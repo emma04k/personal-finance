@@ -6,10 +6,11 @@ import {
 import { parseCurrencyAmountToMinorUnits } from "@/modules/finance/application/currency-amount";
 import { createCurrencyCode, type CurrencyCodeError } from "@/modules/finance/domain/money";
 import { err, ok, type Result } from "@/modules/finance/domain/result";
-import type {
-  OwnedBudgetLine,
-  OwnedCategory,
-  OwnedPlanningRepository,
+import {
+  DuplicatePlannedBudgetLineError,
+  type OwnedBudgetLine,
+  type OwnedCategory,
+  type OwnedPlanningRepository,
 } from "./owned-planning-repository";
 
 type PlannedBudgetLineValidationError = Readonly<{
@@ -164,13 +165,21 @@ export async function updatePlannedBudgetLine({
     return err({ code: "DUPLICATE_PLANNED_LINE", field: "categoryId" });
   }
 
-  const budgetLine = await repository.updatePlannedBudgetLineForOwnerPeriod(owner.userId, {
-    periodId: displayedPeriod.id,
-    budgetLineId: input.budgetLineId,
-    categoryId: category.id,
-    plannedAmountMinor,
-    currencyCode: currency.value,
-  });
+  let budgetLine: OwnedBudgetLine | null;
+  try {
+    budgetLine = await repository.updatePlannedBudgetLineForOwnerPeriod(owner.userId, {
+      periodId: displayedPeriod.id,
+      budgetLineId: input.budgetLineId,
+      categoryId: category.id,
+      plannedAmountMinor,
+      currencyCode: currency.value,
+    });
+  } catch (error) {
+    if (error instanceof DuplicatePlannedBudgetLineError) {
+      return err({ code: "DUPLICATE_PLANNED_LINE", field: "categoryId" });
+    }
+    throw error;
+  }
 
   if (!budgetLine) return err({ code: "PLANNED_LINE_NOT_FOUND", field: "budgetLineId" });
   return ok({ budgetLine });

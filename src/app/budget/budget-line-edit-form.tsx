@@ -5,6 +5,7 @@ import type {
   OwnedBudgetLine,
   OwnedCategory,
 } from "@/modules/budget/application/owned-planning-repository";
+import { formatEditableCurrencyMinorUnits } from "@/modules/finance/application/currency-amount";
 import { updateBudgetLineAction } from "./actions";
 import { initialBudgetLineActionState } from "./budget-line-action-state";
 
@@ -51,7 +52,7 @@ export function BudgetLineEditForm({
         type="text"
         inputMode="decimal"
         pattern="0|[1-9][0-9]*(\.[0-9]+)?"
-        defaultValue={formatEditableAmount(budgetLine.plannedAmountMinor, budgetLine.currencyCode)}
+        defaultValue={formatEditableCurrencyMinorUnits(budgetLine.plannedAmountMinor, budgetLine.currencyCode)}
         aria-describedby={`budget-line-edit-amount-error-${budgetLine.id}`}
         aria-invalid={Boolean(state.fieldErrors?.plannedAmount)}
         disabled={pending}
@@ -91,15 +92,6 @@ export function BudgetLineEditForm({
       </button>
     </form>
   );
-}
-
-function formatEditableAmount(minorUnits: string, currencyCode: string) {
-  const exponent = currencyCode === "JPY" ? 0 : currencyCode === "KWD" ? 3 : 2;
-  if (exponent === 0) return minorUnits;
-  const padded = minorUnits.padStart(exponent + 1, "0");
-  const whole = padded.slice(0, -exponent);
-  const fraction = padded.slice(-exponent);
-  return `${whole}.${fraction}`;
 }
 
 function formatCategoryTypeLabel(type: OwnedCategory["type"]) {

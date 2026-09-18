@@ -5,6 +5,7 @@ import {
   type DeleteTransactionForOwnerPeriodInput,
   DuplicateCategoryError,
   DuplicateMonthlyPeriodError,
+  DuplicatePlannedBudgetLineError,
   type CreatePeriodForOwnerInput,
   type OwnedBudgetLine,
   type OwnedCategory,
@@ -237,14 +238,22 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
       periodId: input.periodId,
       kind: "PLANNED",
     };
-    const updateResult = await updateManyBudgetLines(budgetLine, {
-      where: ownerPlannedLineWhere,
-      data: {
-        categoryId: input.categoryId,
-        plannedAmountMinor: BigInt(input.plannedAmountMinor),
-        currencyCode: input.currencyCode,
-      },
-    });
+    let updateResult: { readonly count: number };
+    try {
+      updateResult = await updateManyBudgetLines(budgetLine, {
+        where: ownerPlannedLineWhere,
+        data: {
+          categoryId: input.categoryId,
+          plannedAmountMinor: BigInt(input.plannedAmountMinor),
+          currencyCode: input.currencyCode,
+        },
+      });
+    } catch (error) {
+      if (isPrismaPeriodCategoryUniqueConstraintError(error)) {
+        throw new DuplicatePlannedBudgetLineError();
+      }
+      throw error;
+    }
 
     if (updateResult.count === 0) return null;
 

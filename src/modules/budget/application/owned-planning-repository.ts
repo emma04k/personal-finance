@@ -55,6 +55,13 @@ export class DuplicateCategoryError extends Error {
   }
 }
 
+export class DuplicatePlannedBudgetLineError extends Error {
+  constructor() {
+    super("A planned budget line already exists for this period and category.");
+    this.name = "DuplicatePlannedBudgetLineError";
+  }
+}
+
 export type CreatePeriodForOwnerInput = {
   readonly monthStart: string;
   readonly currencyCode: string;
