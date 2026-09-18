@@ -710,17 +710,21 @@ h2 {
   font-weight: 750;
 }
 
+.budget-line-edit-form,
 .budget-transaction-edit-form {
   display: grid;
   gap: 8px;
   margin-top: 8px;
 }
 
+.budget-line-edit-form label,
 .budget-transaction-edit-form label {
   font-size: 0.85rem;
   font-weight: 750;
 }
 
+.budget-line-edit-form input,
+.budget-line-edit-form select,
 .budget-transaction-edit-form input,
 .budget-transaction-edit-form select {
   width: 100%;
@@ -733,6 +737,7 @@ h2 {
   font-size: 16px;
 }
 
+.budget-line-edit-form .field-error,
 .budget-transaction-edit-form .field-error {
   min-height: 1.2em;
   margin: -4px 0 2px;
@@ -740,11 +745,13 @@ h2 {
   font-size: 0.85rem;
 }
 
+.budget-line-edit-form [aria-invalid="true"],
 .budget-transaction-edit-form [aria-invalid="true"] {
   border-color: #b42318;
   box-shadow: 0 0 0 1px #b42318;
 }
 
+.budget-line-edit-form button,
 .budget-transaction-edit-form button {
   min-height: 44px;
   padding: 10px 14px;
@@ -755,6 +762,9 @@ h2 {
   font-weight: 750;
 }
 
+.budget-line-edit-form button:disabled,
+.budget-line-edit-form input:disabled,
+.budget-line-edit-form select:disabled,
 .budget-transaction-edit-form button:disabled,
 .budget-transaction-edit-form input:disabled,
 .budget-transaction-edit-form select:disabled {
@@ -762,6 +772,7 @@ h2 {
   opacity: 0.55;
 }
 
+.budget-line-edit-form .form-feedback,
 .budget-transaction-edit-form .form-feedback {
   margin: 2px 0;
   padding: 8px 10px;
@@ -770,10 +781,12 @@ h2 {
   font-weight: 700;
 }
 
+.budget-line-edit-form .form-feedback-error,
 .budget-transaction-edit-form .form-feedback-error {
   border-left: 4px solid #b42318;
 }
 
+.budget-line-edit-form .form-feedback-success,
 .budget-transaction-edit-form .form-feedback-success {
   border-left: 4px solid var(--primary);
 }

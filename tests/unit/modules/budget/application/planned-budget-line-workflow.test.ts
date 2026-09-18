@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
 import {
   deletePlannedBudgetLine,
+  updatePlannedBudgetLine,
   upsertPlannedBudgetLine,
 } from "@/modules/budget/application/planned-budget-line-workflow";
 import type {
@@ -41,6 +42,15 @@ const category: OwnedCategory = {
   archivedAt: null,
 };
 
+const targetCategory: OwnedCategory = {
+  id: "20000000-0000-0000-0000-000000000002",
+  userId: owner.userId,
+  type: "SAVINGS",
+  name: "Emergency fund",
+  sortOrder: 2,
+  archivedAt: null,
+};
+
 const plannedLine: OwnedBudgetLine = {
   id: "30000000-0000-0000-0000-000000000001",
   userId: owner.userId,
@@ -50,6 +60,14 @@ const plannedLine: OwnedBudgetLine = {
   categoryType: category.type,
   plannedAmountMinor: "12345",
   currencyCode: "COP",
+};
+
+const updatedPlannedLine: OwnedBudgetLine = {
+  ...plannedLine,
+  categoryId: targetCategory.id,
+  categoryName: targetCategory.name,
+  categoryType: targetCategory.type,
+  plannedAmountMinor: "55500",
 };
 
 function repository(overrides: Partial<Pick<OwnedPlanningRepository,
@@ -69,6 +87,21 @@ function deleteRepository(overrides: Partial<Pick<OwnedPlanningRepository,
   return {
     listPeriodsForOwner: vi.fn(async () => [period]),
     deletePlannedBudgetLineForOwnerPeriod: vi.fn(async () => true),
+    ...overrides,
+  };
+}
+
+function updateRepository(overrides: Partial<Pick<OwnedPlanningRepository,
+  | "listPeriodsForOwner"
+  | "findCategoryForOwner"
+  | "listPlannedBudgetLinesForOwnerPeriod"
+  | "updatePlannedBudgetLineForOwnerPeriod"
+>> = {}) {
+  return {
+    listPeriodsForOwner: vi.fn(async () => [period]),
+    findCategoryForOwner: vi.fn(async () => targetCategory),
+    listPlannedBudgetLinesForOwnerPeriod: vi.fn(async () => [plannedLine]),
+    updatePlannedBudgetLineForOwnerPeriod: vi.fn(async () => updatedPlannedLine),
     ...overrides,
   };
 }
@@ -144,6 +177,192 @@ describe("planned budget line workflow", () => {
     expect(repo.listPeriodsForOwner).toHaveBeenCalledWith(owner.userId);
     expect(repo.deletePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
   });
+
+  it("updates an owned current-period planned line amount and category", async () => {
+    const repo = updateRepository();
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: plannedLine.id,
+        categoryId: targetCategory.id,
+        plannedAmount: "555.00",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: true, value: { budgetLine: updatedPlannedLine } });
+    expect(repo.listPeriodsForOwner).toHaveBeenCalledWith(owner.userId);
+    expect(repo.findCategoryForOwner).toHaveBeenCalledWith(owner.userId, targetCategory.id);
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).toHaveBeenCalledWith(owner.userId, {
+      periodId: period.id,
+      budgetLineId: plannedLine.id,
+      categoryId: targetCategory.id,
+      plannedAmountMinor: "55500",
+      currencyCode: "COP",
+    });
+  });
+
+  it("rejects editing an owned planned line from an owned non-current period", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    const repo = updateRepository({
+      listPeriodsForOwner: vi.fn(async () => [nonCurrentOwnedPeriod, period]),
+    });
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: nonCurrentOwnedPeriod.id,
+        budgetLineId: plannedLine.id,
+        categoryId: targetCategory.id,
+        plannedAmount: "555.00",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "PERIOD_NOT_FOUND", field: "periodId" } });
+    expect(repo.findCategoryForOwner).not.toHaveBeenCalled();
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
+  it("rejects planned-line edits that would duplicate another category in the displayed period", async () => {
+    const duplicateLine: OwnedBudgetLine = {
+      ...plannedLine,
+      id: "30000000-0000-0000-0000-000000000002",
+      categoryId: targetCategory.id,
+      categoryName: targetCategory.name,
+      categoryType: targetCategory.type,
+    };
+    const repo = updateRepository({
+      listPlannedBudgetLinesForOwnerPeriod: vi.fn(async () => [plannedLine, duplicateLine]),
+    });
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: plannedLine.id,
+        categoryId: targetCategory.id,
+        plannedAmount: "555.00",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "DUPLICATE_PLANNED_LINE", field: "categoryId" } });
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
+  it("returns planned-line missing feedback when no owner-period scoped planned line is updated", async () => {
+    const repo = updateRepository({
+      updatePlannedBudgetLineForOwnerPeriod: vi.fn(async () => null),
+    });
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: "30000000-0000-0000-0000-000000000999",
+        categoryId: targetCategory.id,
+        plannedAmount: "555.00",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "PLANNED_LINE_NOT_FOUND", field: "budgetLineId" } });
+  });
+
+  it("returns missing instead of duplicate feedback for forged planned-line edit ids", async () => {
+    const repo = updateRepository({
+      findCategoryForOwner: vi.fn(async () => category),
+    });
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: "30000000-0000-0000-0000-000000000999",
+        categoryId: category.id,
+        plannedAmount: "555.00",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "PLANNED_LINE_NOT_FOUND", field: "budgetLineId" } });
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid planned-line edit amounts before owner-scoped lookups", async () => {
+    const repo = updateRepository();
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: plannedLine.id,
+        categoryId: targetCategory.id,
+        plannedAmount: "001",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "INVALID_PLANNED_AMOUNT", field: "plannedAmount" } });
+    expect(repo.listPeriodsForOwner).not.toHaveBeenCalled();
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
+  it("rejects planned-line edits with currency mismatches before category lookup", async () => {
+    const repo = updateRepository();
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: plannedLine.id,
+        categoryId: targetCategory.id,
+        plannedAmount: "555.00",
+        currencyCode: "USD",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "CURRENCY_MISMATCH", field: "currencyCode" } });
+    expect(repo.findCategoryForOwner).not.toHaveBeenCalled();
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", null, "CATEGORY_NOT_FOUND"],
+    ["inactive", { ...targetCategory, archivedAt: "2026-04-01T00:00:00.000Z" }, "CATEGORY_NOT_ACTIVE"],
+    ["invalid type", { ...targetCategory, type: "TRANSFER" as OwnedCategory["type"] }, "INVALID_CATEGORY_TYPE"],
+  ] as const)("rejects %s target categories before planned-line edit writes", async (_label, foundCategory, code) => {
+    const repo = updateRepository({
+      findCategoryForOwner: vi.fn(async () => foundCategory),
+    });
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: plannedLine.id,
+        categoryId: targetCategory.id,
+        plannedAmount: "555.00",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code, field: "categoryId" } });
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
   it("upserts a planned amount for the authenticated owner's active category and owned period", async () => {
     const repo = repository();
 

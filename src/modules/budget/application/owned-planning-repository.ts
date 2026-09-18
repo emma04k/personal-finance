@@ -74,6 +74,14 @@ export type UpsertPlannedBudgetLineForOwnerInput = {
   readonly currencyCode: string;
 };
 
+export type UpdatePlannedBudgetLineForOwnerPeriodInput = {
+  readonly periodId: string;
+  readonly budgetLineId: string;
+  readonly categoryId: string;
+  readonly plannedAmountMinor: string;
+  readonly currencyCode: string;
+};
+
 export type DeletePlannedBudgetLineForOwnerPeriodInput = {
   readonly periodId: string;
   readonly budgetLineId: string;
@@ -136,6 +144,10 @@ export type OwnedPlanningRepository = {
     ownerUserId: string,
     input: UpsertPlannedBudgetLineForOwnerInput,
   ) => Promise<OwnedBudgetLine>;
+  readonly updatePlannedBudgetLineForOwnerPeriod: (
+    ownerUserId: string,
+    input: UpdatePlannedBudgetLineForOwnerPeriodInput,
+  ) => Promise<OwnedBudgetLine | null>;
   readonly deletePlannedBudgetLineForOwnerPeriod: (
     ownerUserId: string,
     input: DeletePlannedBudgetLineForOwnerPeriodInput,
@@ -283,6 +295,33 @@ export class InMemoryOwnedPlanningRepository implements OwnedPlanningRepository 
     };
     this.#budgetLines.push(budgetLine);
     return budgetLine;
+  }
+
+  async updatePlannedBudgetLineForOwnerPeriod(
+    ownerUserId: string,
+    input: UpdatePlannedBudgetLineForOwnerPeriodInput,
+  ) {
+    const budgetLineIndex = this.#budgetLines.findIndex(
+      (budgetLine) => budgetLine.userId === ownerUserId
+        && budgetLine.periodId === input.periodId
+        && budgetLine.id === input.budgetLineId,
+    );
+
+    if (budgetLineIndex === -1) return null;
+    const category = this.#categories.find(
+      (record) => record.userId === ownerUserId && record.id === input.categoryId,
+    );
+    const existing = this.#budgetLines[budgetLineIndex];
+    const updated: OwnedBudgetLine = {
+      ...existing,
+      categoryId: input.categoryId,
+      categoryName: category?.name ?? "",
+      categoryType: category?.type ?? "EXPENSE",
+      plannedAmountMinor: input.plannedAmountMinor,
+      currencyCode: input.currencyCode,
+    };
+    this.#budgetLines.splice(budgetLineIndex, 1, updated);
+    return updated;
   }
 
   async deletePlannedBudgetLineForOwnerPeriod(

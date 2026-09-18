@@ -71,6 +71,26 @@ const mocks = vi.hoisted(() => {
     plannedAmountMinor: input.plannedAmountMinor,
     currencyCode: input.currencyCode,
   }));
+  const listPlannedBudgetLinesForOwnerPeriod = vi.fn(async () => [{
+    id: "30000000-0000-0000-0000-000000000001",
+    userId: owner.userId,
+    periodId: currentPeriod.id,
+    categoryId: "20000000-0000-0000-0000-000000000001",
+    categoryName: "Groceries",
+    categoryType: "EXPENSE" as const,
+    plannedAmountMinor: "12345",
+    currencyCode: "COP",
+  }]);
+  const updatePlannedBudgetLineForOwnerPeriod = vi.fn(async (_ownerUserId: string, input) => ({
+    id: input.budgetLineId,
+    userId: owner.userId,
+    periodId: input.periodId,
+    categoryId: input.categoryId,
+    categoryName: "Groceries",
+    categoryType: "EXPENSE" as const,
+    plannedAmountMinor: input.plannedAmountMinor,
+    currencyCode: input.currencyCode,
+  }));
   const createTransactionForOwner = vi.fn(async (_ownerUserId: string, input) => ({
     id: "40000000-0000-0000-0000-000000000001",
     userId: owner.userId,
@@ -108,6 +128,8 @@ const mocks = vi.hoisted(() => {
     | "findPeriodForOwner"
     | "findCategoryForOwner"
     | "upsertPlannedBudgetLineForOwner"
+    | "listPlannedBudgetLinesForOwnerPeriod"
+    | "updatePlannedBudgetLineForOwnerPeriod"
     | "deletePlannedBudgetLineForOwnerPeriod"
     | "createTransactionForOwner"
     | "updateTransactionForOwnerPeriod"
@@ -120,6 +142,8 @@ const mocks = vi.hoisted(() => {
     findPeriodForOwner,
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
+    listPlannedBudgetLinesForOwnerPeriod,
+    updatePlannedBudgetLineForOwnerPeriod,
     deletePlannedBudgetLineForOwnerPeriod,
     createTransactionForOwner,
     updateTransactionForOwnerPeriod,
@@ -138,6 +162,8 @@ const mocks = vi.hoisted(() => {
     findPeriodForOwner,
     findCategoryForOwner,
     upsertPlannedBudgetLineForOwner,
+    listPlannedBudgetLinesForOwnerPeriod,
+    updatePlannedBudgetLineForOwnerPeriod,
     deletePlannedBudgetLineForOwnerPeriod,
     createTransactionForOwner,
     updateTransactionForOwnerPeriod,
@@ -172,6 +198,7 @@ import {
   createBudgetTransactionAction,
   deleteBudgetLineAction,
   deleteBudgetTransactionAction,
+  updateBudgetLineAction,
   updateBudgetTransactionAction,
 } from "@/app/budget/actions";
 import { initialBudgetLineActionState } from "@/app/budget/budget-line-action-state";
@@ -239,6 +266,12 @@ function deleteBudgetLineForm(overrides: Partial<Record<"periodId" | "budgetLine
   return formData;
 }
 
+function editBudgetLineForm(overrides: Partial<Record<"periodId" | "budgetLineId" | "categoryId" | "plannedAmount" | "currencyCode" | "userId", string>> = {}) {
+  const formData = budgetLineForm(overrides);
+  formData.set("budgetLineId", overrides.budgetLineId ?? "30000000-0000-0000-0000-000000000001");
+  return formData;
+}
+
 describe("budget period server action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -278,6 +311,26 @@ describe("budget period server action", () => {
     });
     mocks.upsertPlannedBudgetLineForOwner.mockImplementation(async (_ownerUserId: string, input) => ({
       id: "30000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      periodId: input.periodId,
+      categoryId: input.categoryId,
+      categoryName: "Groceries",
+      categoryType: "EXPENSE",
+      plannedAmountMinor: input.plannedAmountMinor,
+      currencyCode: input.currencyCode,
+    }));
+    mocks.listPlannedBudgetLinesForOwnerPeriod.mockResolvedValue([{
+      id: "30000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      periodId: mocks.currentPeriod.id,
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      categoryName: "Groceries",
+      categoryType: "EXPENSE",
+      plannedAmountMinor: "12345",
+      currencyCode: "COP",
+    }]);
+    mocks.updatePlannedBudgetLineForOwnerPeriod.mockImplementation(async (_ownerUserId: string, input) => ({
+      id: input.budgetLineId,
       userId: mocks.owner.userId,
       periodId: input.periodId,
       categoryId: input.categoryId,
@@ -572,6 +625,116 @@ describe("budget period server action", () => {
     await expect(
       createBudgetLineAction(initialBudgetLineActionState, budgetLineForm()),
     ).rejects.toThrow("planned-line write failed");
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("updates planned budget lines from authenticated owner context without accepting client owner ids", async () => {
+    const result = await updateBudgetLineAction(
+      initialBudgetLineActionState,
+      editBudgetLineForm({
+        userId: "00000000-0000-0000-0000-000000000999",
+        plannedAmount: "555.00",
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Monto planeado actualizado.",
+      fieldErrors: {},
+    });
+    expect(mocks.requireCurrentOwnershipContext).toHaveBeenCalled();
+    expect(mocks.updatePlannedBudgetLineForOwnerPeriod).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: "10000000-0000-0000-0000-000000000001",
+      budgetLineId: "30000000-0000-0000-0000-000000000001",
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      plannedAmountMinor: "55500",
+      currencyCode: "COP",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/budget");
+  });
+
+  it("returns clear edit feedback when the planned line is missing or outside the owner's period", async () => {
+    mocks.listPlannedBudgetLinesForOwnerPeriod.mockResolvedValueOnce([] as never);
+    mocks.updatePlannedBudgetLineForOwnerPeriod.mockResolvedValueOnce(null as never);
+
+    const result = await updateBudgetLineAction(
+      initialBudgetLineActionState,
+      editBudgetLineForm({ budgetLineId: "30000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "No se encontró un monto planeado propio para editar.",
+      fieldErrors: { budgetLineId: "No se encontró un monto planeado propio para editar." },
+    });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("returns duplicate planned-line feedback without revalidating", async () => {
+    mocks.findCategoryForOwner.mockResolvedValueOnce({
+      id: "20000000-0000-0000-0000-000000000002",
+      userId: mocks.owner.userId,
+      type: "SAVINGS" as const,
+      name: "Emergency fund",
+      sortOrder: 1,
+      archivedAt: null,
+    } as never);
+    mocks.listPlannedBudgetLinesForOwnerPeriod.mockResolvedValueOnce([
+      {
+        id: "30000000-0000-0000-0000-000000000001",
+        userId: mocks.owner.userId,
+        periodId: mocks.currentPeriod.id,
+        categoryId: "20000000-0000-0000-0000-000000000001",
+        categoryName: "Groceries",
+        categoryType: "EXPENSE",
+        plannedAmountMinor: "12345",
+        currencyCode: "COP",
+      },
+      {
+        id: "30000000-0000-0000-0000-000000000002",
+        userId: mocks.owner.userId,
+        periodId: mocks.currentPeriod.id,
+        categoryId: "20000000-0000-0000-0000-000000000002",
+        categoryName: "Emergency fund",
+        categoryType: "SAVINGS",
+        plannedAmountMinor: "20000",
+        currencyCode: "COP",
+      },
+    ] as never);
+
+    const result = await updateBudgetLineAction(
+      initialBudgetLineActionState,
+      editBudgetLineForm({ categoryId: "20000000-0000-0000-0000-000000000002" }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Ya existe un monto planeado para esa categoría en este periodo.",
+      fieldErrors: { categoryId: "Ya existe un monto planeado para esa categoría en este periodo." },
+    });
+    expect(mocks.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects planned-line edit submissions for an owned non-current period instead of trusting the hidden period id", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    mocks.listPeriodsForOwner.mockResolvedValueOnce([
+      mocks.nonCurrentOwnedPeriod,
+      mocks.currentPeriod,
+    ]);
+
+    const result = await updateBudgetLineAction(
+      initialBudgetLineActionState,
+      editBudgetLineForm({ periodId: mocks.nonCurrentOwnedPeriod.id }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Selecciona un periodo propio válido.",
+      fieldErrors: { periodId: "Selecciona un periodo propio válido." },
+    });
+    expect(mocks.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 

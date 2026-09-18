@@ -11,6 +11,7 @@ import {
   type OwnedPeriod,
   type OwnedPlanningRepository,
   type OwnedTransaction,
+  type UpdatePlannedBudgetLineForOwnerPeriodInput,
   type UpdateTransactionForOwnerPeriodInput,
   type UpsertPlannedBudgetLineForOwnerInput,
 } from "@/modules/budget/application/owned-planning-repository";
@@ -222,6 +223,37 @@ export class PrismaOwnedPlanningRepository implements OwnedPlanningRepository {
       });
       return toOwnedBudgetLine(updated);
     }
+  }
+
+  async updatePlannedBudgetLineForOwnerPeriod(
+    ownerUserId: string,
+    input: UpdatePlannedBudgetLineForOwnerPeriodInput,
+  ) {
+    const budgetLine = budgetLineDelegate(this.db);
+    const includeCategoryLabel = { category: { select: { name: true, type: true } } };
+    const ownerPlannedLineWhere = {
+      id: input.budgetLineId,
+      userId: ownerUserId,
+      periodId: input.periodId,
+      kind: "PLANNED",
+    };
+    const updateResult = await updateManyBudgetLines(budgetLine, {
+      where: ownerPlannedLineWhere,
+      data: {
+        categoryId: input.categoryId,
+        plannedAmountMinor: BigInt(input.plannedAmountMinor),
+        currencyCode: input.currencyCode,
+      },
+    });
+
+    if (updateResult.count === 0) return null;
+
+    const record = await findFirstBudgetLine(budgetLine, {
+      where: ownerPlannedLineWhere,
+      include: includeCategoryLabel,
+    });
+    if (!record) throw new Error("Updated planned budget line was not found.");
+    return toOwnedBudgetLine(record);
   }
 
   async deletePlannedBudgetLineForOwnerPeriod(
