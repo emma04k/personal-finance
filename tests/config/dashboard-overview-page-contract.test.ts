@@ -59,6 +59,31 @@ describe("dashboard monthly overview page contract", () => {
     expect(page).not.toMatch(/parseFloat|Number\(|toFixed\(|Math\.round\(/);
   });
 
+  it("renders planned-versus-actual variance signals from existing summary outputs", () => {
+    expect(existsSync(dashboardPagePath)).toBe(true);
+    const page = source(dashboardPagePath);
+
+    expect(page).toMatch(/aria-labelledby="dashboard-variance-heading"/);
+    expect(page).toMatch(/id="dashboard-variance-heading">Variación planeado vs real<\/h2>/);
+    expect(page).toMatch(/summary\.incomeVariance/);
+    expect(page).toMatch(/summary\.expenseVariance/);
+    expect(page).toMatch(/formatMaybeMoney\(summary\.incomeVariance\)/);
+    expect(page).toMatch(/formatMaybeMoney\(summary\.expenseVariance\)/);
+    expect(page).toMatch(/label="Variación de ingresos"/);
+    expect(page).toMatch(/label="Variación de egresos"/);
+  });
+
+  it("shows accessible fallback text when variance data is partial or missing", () => {
+    expect(existsSync(dashboardPagePath)).toBe(true);
+    const page = source(dashboardPagePath);
+
+    expect(page).toMatch(/detail=\{formatVarianceDetail\(summary\.incomeVariance, "income"\)\}/);
+    expect(page).toMatch(/detail=\{formatVarianceDetail\(summary\.expenseVariance, "expense"\)\}/);
+    expect(page).toMatch(/role=\{value\.available \? undefined : "status"\}/);
+    expect(page).toMatch(/No disponible: faltan valores planeados o reales completos para comparar\./);
+    expect(page).toMatch(/La variación compara importes reales menos planeados; úsala como señal descriptiva, no como recomendación financiera\./);
+  });
+
   it("shows accessible empty and fail-closed states", () => {
     expect(existsSync(dashboardPagePath)).toBe(true);
     const page = source(dashboardPagePath);
@@ -85,5 +110,17 @@ describe("dashboard monthly overview page contract", () => {
     expect(dashboardCardGrid).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/);
     expect(dashboardCard).toMatch(/min-width:\s*0\s*;/);
     expect(dashboardCardText).toMatch(/overflow-wrap:\s*anywhere\s*;/);
+  });
+
+  it("keeps variance signals mobile-first without chart, import, debt, or AI scope creep", () => {
+    const page = source(dashboardPagePath);
+    const varianceGrid = declarationBlock(".dashboard-variance-grid");
+
+    expect(page).toMatch(/className="dashboard-variance-grid"/);
+    expect(varianceGrid).toMatch(/display:\s*grid\s*;/);
+    expect(varianceGrid).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/);
+    expect(varianceGrid).toMatch(/min-width:\s*0\s*;/);
+    expect(varianceGrid).toMatch(/max-width:\s*100%\s*;/);
+    expect(page).not.toMatch(/\b(?:recharts|Chart|CSV|XLSX|PDF|import workbook|debt account|AI|advisor|provider)\b/i);
   });
 });
