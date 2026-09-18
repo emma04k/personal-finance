@@ -17,6 +17,7 @@ import { buildMonthlyBudgetSummary } from "@/modules/budget/application/monthly-
 import type {
   AggregateMoney,
   BudgetSummary,
+  MaybeMoney,
   MaybeRate,
 } from "@/modules/budget/domain/budget-summary";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
@@ -180,6 +181,29 @@ function DashboardContent({
           />
         </div>
       </section>
+
+      <section className="dashboard-panel" aria-labelledby="dashboard-variance-heading">
+        <div>
+          <p className="eyebrow">Planeado vs real</p>
+          <h2 id="dashboard-variance-heading">Variación planeado vs real</h2>
+          <p>Diferencias calculadas desde el resumen mensual cuando hay datos completos.</p>
+        </div>
+
+        <div className="dashboard-variance-grid" aria-label="Variaciones planeado contra real del mes">
+          <DashboardVarianceCard
+            label="Variación de ingresos"
+            value={summary.incomeVariance}
+            displayValue={formatMaybeMoney(summary.incomeVariance)}
+            detail={formatVarianceDetail(summary.incomeVariance, "income")}
+          />
+          <DashboardVarianceCard
+            label="Variación de egresos"
+            value={summary.expenseVariance}
+            displayValue={formatMaybeMoney(summary.expenseVariance)}
+            detail={formatVarianceDetail(summary.expenseVariance, "expense")}
+          />
+        </div>
+      </section>
     </section>
   );
 }
@@ -197,6 +221,26 @@ function DashboardCard({
     <article className="dashboard-card">
       <p>{label}</p>
       <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function DashboardVarianceCard({
+  detail,
+  displayValue,
+  label,
+  value,
+}: {
+  readonly detail: string;
+  readonly displayValue: string;
+  readonly label: string;
+  readonly value: MaybeMoney;
+}) {
+  return (
+    <article className="dashboard-card">
+      <p>{label}</p>
+      <strong role={value.available ? undefined : "status"}>{displayValue}</strong>
       <small>{detail}</small>
     </article>
   );
@@ -229,6 +273,22 @@ function formatCompletenessLabel(completeness: AggregateMoney["completeness"]) {
     case "missing":
       return "Sin datos";
   }
+}
+
+function formatMaybeMoney(value: MaybeMoney) {
+  return value.available ? formatMoney(value.value) : formatRateUnavailableReason(value.reason);
+}
+
+function formatVarianceDetail(value: MaybeMoney, kind: "income" | "expense") {
+  if (!value.available) {
+    return "No disponible: faltan valores planeados o reales completos para comparar.";
+  }
+
+  const basis = kind === "income"
+    ? "Ingreso real menos ingreso planeado del mes."
+    : "Egreso real menos egreso planeado del mes.";
+
+  return `${basis} La variación compara importes reales menos planeados; úsala como señal descriptiva, no como recomendación financiera.`;
 }
 
 function formatMaybeRate(value: MaybeRate) {
