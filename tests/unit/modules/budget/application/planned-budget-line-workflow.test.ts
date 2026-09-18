@@ -5,11 +5,12 @@ import {
   updatePlannedBudgetLine,
   upsertPlannedBudgetLine,
 } from "@/modules/budget/application/planned-budget-line-workflow";
-import type {
-  OwnedBudgetLine,
-  OwnedCategory,
-  OwnedPeriod,
-  OwnedPlanningRepository,
+import {
+  DuplicatePlannedBudgetLineError,
+  type OwnedBudgetLine,
+  type OwnedCategory,
+  type OwnedPeriod,
+  type OwnedPlanningRepository,
 } from "@/modules/budget/application/owned-planning-repository";
 
 const owner: OwnershipContext = {
@@ -255,6 +256,36 @@ describe("planned budget line workflow", () => {
 
     expect(result).toEqual({ ok: false, error: { code: "DUPLICATE_PLANNED_LINE", field: "categoryId" } });
     expect(repo.updatePlannedBudgetLineForOwnerPeriod).not.toHaveBeenCalled();
+  });
+
+  it("returns duplicate feedback when a category-changing planned-line edit hits a unique race", async () => {
+    const duplicateRace = new DuplicatePlannedBudgetLineError();
+    const repo = updateRepository({
+      updatePlannedBudgetLineForOwnerPeriod: vi.fn(async () => {
+        throw duplicateRace;
+      }),
+    });
+
+    const result = await updatePlannedBudgetLine({
+      owner,
+      repository: repo,
+      input: {
+        periodId: period.id,
+        budgetLineId: plannedLine.id,
+        categoryId: targetCategory.id,
+        plannedAmount: "555.00",
+        currencyCode: "COP",
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "DUPLICATE_PLANNED_LINE", field: "categoryId" } });
+    expect(repo.updatePlannedBudgetLineForOwnerPeriod).toHaveBeenCalledWith(owner.userId, {
+      periodId: period.id,
+      budgetLineId: plannedLine.id,
+      categoryId: targetCategory.id,
+      plannedAmountMinor: "55500",
+      currencyCode: "COP",
+    });
   });
 
   it("returns planned-line missing feedback when no owner-period scoped planned line is updated", async () => {

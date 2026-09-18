@@ -4,7 +4,7 @@ import {
   selectDisplayedBudgetPeriod,
 } from "@/modules/budget/application/default-budget-period";
 import { parseCurrencyAmountToMinorUnits } from "@/modules/finance/application/currency-amount";
-import { createCurrencyCode, type CurrencyCodeError } from "@/modules/finance/domain/money";
+import { createCurrencyCode, type CurrencyCode, type CurrencyCodeError } from "@/modules/finance/domain/money";
 import { err, ok, type Result } from "@/modules/finance/domain/result";
 import type {
   OwnedCategory,
@@ -68,53 +68,34 @@ export async function createPeriodTransaction({
     readonly description: string;
   };
 }): Promise<Result<CreatePeriodTransactionResult, PeriodTransactionError>> {
-  const currency = createCurrencyCode(input.currencyCode);
-  if (!currency.ok) return currency;
-
-  const amountMinor = parseCurrencyAmountToMinorUnits(input.amount, currency.value);
-  if (amountMinor === null || BigInt(amountMinor) <= BigInt("0")) {
-    return err({ code: "INVALID_TRANSACTION_AMOUNT", field: "amount" });
-  }
-
-  const description = input.description.trim();
-  if (description.length === 0) {
-    return err({ code: "DESCRIPTION_REQUIRED", field: "description" });
-  }
-  if (description.length > 255) {
-    return err({ code: "DESCRIPTION_TOO_LONG", field: "description" });
-  }
+  const draft = validatePeriodTransactionDraft(input);
+  if (!draft.ok) return draft;
 
   const period = await repository.findPeriodForOwner(owner.userId, input.periodId);
   if (!period) return err({ code: "PERIOD_NOT_FOUND", field: "periodId" });
 
-  if (period.currencyCode !== currency.value) {
+  if (period.currencyCode !== draft.value.currency) {
     return err({ code: "CURRENCY_MISMATCH", field: "currencyCode" });
   }
 
-  if (!isCanonicalDate(input.occurredOn)) {
-    return err({ code: "INVALID_OCCURRED_ON", field: "occurredOn" });
-  }
-  if (!isDateInsidePeriodMonth(input.occurredOn, period.monthStart)) {
-    return err({ code: "DATE_OUTSIDE_PERIOD", field: "occurredOn" });
-  }
+  const dateValidation = validatePeriodTransactionDate(input.occurredOn, period.monthStart);
+  if (!dateValidation.ok) return dateValidation;
 
-  const category = await repository.findCategoryForOwner(owner.userId, input.categoryId);
-  if (!category) return err({ code: "CATEGORY_NOT_FOUND", field: "categoryId" });
-  if (category.archivedAt !== null) {
-    return err({ code: "CATEGORY_NOT_ACTIVE", field: "categoryId" });
-  }
-  if (!allowedCategoryTypes.has(category.type)) {
-    return err({ code: "INVALID_CATEGORY_TYPE", field: "categoryId" });
-  }
+  const category = await validatePeriodTransactionCategory({
+    categoryId: input.categoryId,
+    owner,
+    repository,
+  });
+  if (!category.ok) return category;
 
   const transaction = await repository.createTransactionForOwner(owner.userId, {
     periodId: period.id,
-    categoryId: category.id,
-    direction: category.type === "INCOME" ? "INFLOW" : "OUTFLOW",
-    amountMinor,
-    currencyCode: currency.value,
+    categoryId: category.value.id,
+    direction: category.value.type === "INCOME" ? "INFLOW" : "OUTFLOW",
+    amountMinor: draft.value.amountMinor,
+    currencyCode: draft.value.currency,
     occurredOn: input.occurredOn,
-    description,
+    description: draft.value.description,
   });
   return ok({ transaction });
 }
@@ -139,21 +120,8 @@ export async function updatePeriodTransaction({
     readonly description: string;
   };
 }): Promise<Result<UpdatePeriodTransactionResult, PeriodTransactionError>> {
-  const currency = createCurrencyCode(input.currencyCode);
-  if (!currency.ok) return currency;
-
-  const amountMinor = parseCurrencyAmountToMinorUnits(input.amount, currency.value);
-  if (amountMinor === null || BigInt(amountMinor) <= BigInt("0")) {
-    return err({ code: "INVALID_TRANSACTION_AMOUNT", field: "amount" });
-  }
-
-  const description = input.description.trim();
-  if (description.length === 0) {
-    return err({ code: "DESCRIPTION_REQUIRED", field: "description" });
-  }
-  if (description.length > 255) {
-    return err({ code: "DESCRIPTION_TOO_LONG", field: "description" });
-  }
+  const draft = validatePeriodTransactionDraft(input);
+  if (!draft.ok) return draft;
 
   const periods = await repository.listPeriodsForOwner(owner.userId);
   const displayedPeriod = selectDisplayedBudgetPeriod({
@@ -165,35 +133,29 @@ export async function updatePeriodTransaction({
     return err({ code: "PERIOD_NOT_FOUND", field: "periodId" });
   }
 
-  if (displayedPeriod.currencyCode !== currency.value) {
+  if (displayedPeriod.currencyCode !== draft.value.currency) {
     return err({ code: "CURRENCY_MISMATCH", field: "currencyCode" });
   }
 
-  if (!isCanonicalDate(input.occurredOn)) {
-    return err({ code: "INVALID_OCCURRED_ON", field: "occurredOn" });
-  }
-  if (!isDateInsidePeriodMonth(input.occurredOn, displayedPeriod.monthStart)) {
-    return err({ code: "DATE_OUTSIDE_PERIOD", field: "occurredOn" });
-  }
+  const dateValidation = validatePeriodTransactionDate(input.occurredOn, displayedPeriod.monthStart);
+  if (!dateValidation.ok) return dateValidation;
 
-  const category = await repository.findCategoryForOwner(owner.userId, input.categoryId);
-  if (!category) return err({ code: "CATEGORY_NOT_FOUND", field: "categoryId" });
-  if (category.archivedAt !== null) {
-    return err({ code: "CATEGORY_NOT_ACTIVE", field: "categoryId" });
-  }
-  if (!allowedCategoryTypes.has(category.type)) {
-    return err({ code: "INVALID_CATEGORY_TYPE", field: "categoryId" });
-  }
+  const category = await validatePeriodTransactionCategory({
+    categoryId: input.categoryId,
+    owner,
+    repository,
+  });
+  if (!category.ok) return category;
 
   const transaction = await repository.updateTransactionForOwnerPeriod(owner.userId, {
     periodId: displayedPeriod.id,
     transactionId: input.transactionId,
-    categoryId: category.id,
-    direction: category.type === "INCOME" ? "INFLOW" : "OUTFLOW",
-    amountMinor,
-    currencyCode: currency.value,
+    categoryId: category.value.id,
+    direction: category.value.type === "INCOME" ? "INFLOW" : "OUTFLOW",
+    amountMinor: draft.value.amountMinor,
+    currencyCode: draft.value.currency,
     occurredOn: input.occurredOn,
-    description,
+    description: draft.value.description,
   });
 
   if (!transaction) return err({ code: "TRANSACTION_NOT_FOUND", field: "transactionId" });
@@ -232,6 +194,67 @@ export async function deletePeriodTransaction({
 
   if (!deleted) return err({ code: "TRANSACTION_NOT_FOUND", field: "transactionId" });
   return ok({ deleted: true });
+}
+
+function validatePeriodTransactionDraft(input: {
+  readonly amount: unknown;
+  readonly currencyCode: string;
+  readonly description: string;
+}): Result<Readonly<{
+  amountMinor: string;
+  currency: CurrencyCode;
+  description: string;
+}>, PeriodTransactionError> {
+  const currency = createCurrencyCode(input.currencyCode);
+  if (!currency.ok) return currency;
+
+  const amountMinor = parseCurrencyAmountToMinorUnits(input.amount, currency.value);
+  if (amountMinor === null || BigInt(amountMinor) <= BigInt("0")) {
+    return err({ code: "INVALID_TRANSACTION_AMOUNT", field: "amount" });
+  }
+
+  const description = input.description.trim();
+  if (description.length === 0) {
+    return err({ code: "DESCRIPTION_REQUIRED", field: "description" });
+  }
+  if (description.length > 255) {
+    return err({ code: "DESCRIPTION_TOO_LONG", field: "description" });
+  }
+
+  return ok({ amountMinor, currency: currency.value, description });
+}
+
+function validatePeriodTransactionDate(
+  occurredOn: string,
+  monthStart: string,
+): Result<true, PeriodTransactionValidationError> {
+  if (!isCanonicalDate(occurredOn)) {
+    return err({ code: "INVALID_OCCURRED_ON", field: "occurredOn" });
+  }
+  if (!isDateInsidePeriodMonth(occurredOn, monthStart)) {
+    return err({ code: "DATE_OUTSIDE_PERIOD", field: "occurredOn" });
+  }
+  return ok(true);
+}
+
+async function validatePeriodTransactionCategory({
+  categoryId,
+  owner,
+  repository,
+}: {
+  readonly categoryId: string;
+  readonly owner: OwnershipContext;
+  readonly repository: Pick<OwnedPlanningRepository, "findCategoryForOwner">;
+}): Promise<Result<OwnedCategory, PeriodTransactionValidationError>> {
+  const category = await repository.findCategoryForOwner(owner.userId, categoryId);
+  if (!category) return err({ code: "CATEGORY_NOT_FOUND", field: "categoryId" });
+  if (category.archivedAt !== null) {
+    return err({ code: "CATEGORY_NOT_ACTIVE", field: "categoryId" });
+  }
+  if (!allowedCategoryTypes.has(category.type)) {
+    return err({ code: "INVALID_CATEGORY_TYPE", field: "categoryId" });
+  }
+  return ok(category);
 }
 
 function isCanonicalDate(value: string) {

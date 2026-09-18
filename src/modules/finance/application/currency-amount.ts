@@ -38,11 +38,7 @@ export function formatCurrencyMinorUnits(minorUnits: string, currencyCode: strin
   }
 
   const exponent = currencyExponents[currencyCode];
-  const negative = minorUnits.startsWith("-");
-  const absoluteMinorUnits = negative ? minorUnits.slice(1) : minorUnits;
-  const padded = absoluteMinorUnits.padStart(exponent + 1, "0");
-  const wholePart = exponent === 0 ? padded : padded.slice(0, -exponent);
-  const fractionalPart = exponent === 0 ? "" : padded.slice(-exponent);
+  const { negative, wholePart, fractionalPart } = splitMinorUnits(minorUnits, exponent);
   const amount = exponent === 0
     ? groupIntegerPart(wholePart)
     : `${groupIntegerPart(wholePart)}.${fractionalPart}`;
@@ -50,8 +46,27 @@ export function formatCurrencyMinorUnits(minorUnits: string, currencyCode: strin
   return `${currencyCode} ${negative ? "-" : ""}${amount}`;
 }
 
+export function formatEditableCurrencyMinorUnits(minorUnits: string, currencyCode: string): string {
+  if (!hasCurrencyExponent(currencyCode) || !/^(0|[1-9][0-9]*)$/.test(minorUnits)) {
+    return minorUnits;
+  }
+
+  const exponent = currencyExponents[currencyCode];
+  const { wholePart, fractionalPart } = splitMinorUnits(minorUnits, exponent);
+  return exponent === 0 ? wholePart : `${wholePart}.${fractionalPart}`;
+}
+
 function hasCurrencyExponent(currencyCode: string): currencyCode is CurrencyWithExponent {
   return createCurrencyCode(currencyCode).ok && currencyCode in currencyExponents;
+}
+
+function splitMinorUnits(minorUnits: string, exponent: number) {
+  const negative = minorUnits.startsWith("-");
+  const absoluteMinorUnits = negative ? minorUnits.slice(1) : minorUnits;
+  const padded = absoluteMinorUnits.padStart(exponent + 1, "0");
+  const wholePart = exponent === 0 ? padded : padded.slice(0, -exponent);
+  const fractionalPart = exponent === 0 ? "" : padded.slice(-exponent);
+  return { negative, wholePart, fractionalPart };
 }
 
 function groupIntegerPart(value: string) {

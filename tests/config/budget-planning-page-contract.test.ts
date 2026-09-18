@@ -350,13 +350,15 @@ describe("budget planning page contract", () => {
     expect(editForm).toMatch(/name="categoryId"/);
     expect(editForm).toMatch(/defaultValue=\{budgetLine\.categoryId\}/);
     expect(editForm).toMatch(/name="plannedAmount"/);
-    expect(editForm).toMatch(/defaultValue=\{formatEditableAmount\(budgetLine\.plannedAmountMinor, budgetLine\.currencyCode\)\}/);
+    expect(editForm).toMatch(/formatEditableCurrencyMinorUnits/);
+    expect(editForm).toMatch(/defaultValue=\{formatEditableCurrencyMinorUnits\(budgetLine\.plannedAmountMinor, budgetLine\.currencyCode\)\}/);
     expect(editForm).toMatch(/inputMode="decimal"/);
     expect(editForm).toMatch(/name="currencyCode"/);
     expect(editForm).toMatch(/readOnly/);
     expect(editForm).toMatch(/aria-label=\{`Editar monto planeado/);
     expect(editForm).toMatch(/aria-live="polite"/);
     expect(editForm).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
+    expect(editForm).not.toMatch(/function formatEditableAmount/);
     expect(actionState).toMatch(/"budgetLineId"/);
     expect(action).toMatch(/updateBudgetLineAction/);
     expect(action).toMatch(/updatePlannedBudgetLine/);
@@ -489,9 +491,12 @@ describe("budget planning page contract", () => {
     expect(editForm).toMatch(/name="currencyCode"/);
     expect(editForm).toMatch(/defaultValue=\{transaction\.description\}/);
     expect(editForm).toMatch(/defaultValue=\{transaction\.occurredOn\}/);
+    expect(editForm).toMatch(/formatEditableCurrencyMinorUnits/);
+    expect(editForm).toMatch(/defaultValue=\{formatEditableCurrencyMinorUnits\(transaction\.amountMinor, transaction\.currencyCode\)\}/);
     expect(editForm).toMatch(/readOnly/);
     expect(editForm).toMatch(/aria-live="polite"/);
     expect(editForm).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
+    expect(editForm).not.toMatch(/function formatEditableAmount/);
     expect(actionState).toMatch(/"transactionId"/);
     expect(action).toMatch(/updateBudgetTransactionAction/);
     expect(action).toMatch(/updatePeriodTransaction/);
@@ -511,6 +516,15 @@ describe("budget planning page contract", () => {
     expect(`${action}\n${workflow}`).toMatch(/buildCurrentMonthStartForTimeZone|selectDisplayedBudgetPeriod/);
     expect(workflow).toMatch(/input\.periodId !== displayedPeriod\.id|displayedPeriod\.id !== input\.periodId/);
     expect(workflow).toMatch(/periodId: displayedPeriod\.id/);
+  });
+
+  it("shares transaction create and edit field validation through one workflow helper", () => {
+    const workflow = source(periodTransactionWorkflowPath);
+
+    expect(workflow).toMatch(/function validatePeriodTransactionDraft/);
+    expect([...workflow.matchAll(/parseCurrencyAmountToMinorUnits\(/g)]).toHaveLength(1);
+    expect(workflow).toMatch(/createPeriodTransaction[\s\S]*validatePeriodTransactionDraft\(input\)/);
+    expect(workflow).toMatch(/updatePeriodTransaction[\s\S]*validatePeriodTransactionDraft\(input\)/);
   });
 
   it("renders an accessible delete control for each current-period transaction", () => {

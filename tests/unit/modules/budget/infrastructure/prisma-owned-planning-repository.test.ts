@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DuplicateCategoryError,
   DuplicateMonthlyPeriodError,
+  DuplicatePlannedBudgetLineError,
 } from "@/modules/budget/application/owned-planning-repository";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 
@@ -449,6 +450,37 @@ describe("Prisma owner-scoped planning repository", () => {
         currencyCode: "COP",
       }),
     ).resolves.toBeNull();
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it("translates category-changing planned-line unique races into duplicate planned-line errors", async () => {
+    const uniqueError = {
+      code: "P2002",
+      meta: { target: ["periodId", "categoryId"] },
+    };
+    const updateMany = vi.fn().mockRejectedValue(uniqueError);
+    const findFirst = vi.fn();
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      budgetLine: {
+        findMany: vi.fn(),
+        updateMany,
+        create: vi.fn(),
+        findFirst,
+        update: vi.fn(),
+      } as never,
+    });
+
+    await expect(
+      repository.updatePlannedBudgetLineForOwnerPeriod(ownerUserId, {
+        periodId: otherPeriodId,
+        budgetLineId: "30000000-0000-0000-0000-000000000001",
+        categoryId: otherCategoryId,
+        plannedAmountMinor: "55500",
+        currencyCode: "COP",
+      }),
+    ).rejects.toBeInstanceOf(DuplicatePlannedBudgetLineError);
     expect(findFirst).not.toHaveBeenCalled();
   });
 
