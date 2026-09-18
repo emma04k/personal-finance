@@ -20,13 +20,18 @@ type PlannedBudgetLineValidationError = Readonly<{
     | "CATEGORY_NOT_ACTIVE"
     | "CURRENCY_MISMATCH"
     | "INVALID_CATEGORY_TYPE"
-    | "PLANNED_LINE_NOT_FOUND";
+    | "PLANNED_LINE_NOT_FOUND"
+    | "DUPLICATE_PLANNED_LINE";
   field: "plannedAmount" | "periodId" | "categoryId" | "currencyCode" | "budgetLineId";
 }>;
 
 export type PlannedBudgetLineError = PlannedBudgetLineValidationError | CurrencyCodeError;
 
 export type UpsertPlannedBudgetLineResult = Readonly<{
+  budgetLine: OwnedBudgetLine;
+}>;
+
+export type UpdatePlannedBudgetLineResult = Readonly<{
   budgetLine: OwnedBudgetLine;
 }>;
 
@@ -88,6 +93,86 @@ export async function upsertPlannedBudgetLine({
     plannedAmountMinor,
     currencyCode: currency.value,
   });
+  return ok({ budgetLine });
+}
+
+export async function updatePlannedBudgetLine({
+  input,
+  owner,
+  repository,
+}: {
+  readonly owner: OwnershipContext;
+  readonly repository: Pick<
+    OwnedPlanningRepository,
+    | "listPeriodsForOwner"
+    | "findCategoryForOwner"
+    | "listPlannedBudgetLinesForOwnerPeriod"
+    | "updatePlannedBudgetLineForOwnerPeriod"
+  >;
+  readonly input: {
+    readonly periodId: string;
+    readonly budgetLineId: string;
+    readonly categoryId: string;
+    readonly plannedAmount: unknown;
+    readonly currencyCode: string;
+  };
+}): Promise<Result<UpdatePlannedBudgetLineResult, PlannedBudgetLineError>> {
+  const currency = createCurrencyCode(input.currencyCode);
+  if (!currency.ok) return currency;
+
+  const plannedAmountMinor = parseCurrencyAmountToMinorUnits(input.plannedAmount, currency.value);
+  if (plannedAmountMinor === null) {
+    return err({ code: "INVALID_PLANNED_AMOUNT", field: "plannedAmount" });
+  }
+
+  const periods = await repository.listPeriodsForOwner(owner.userId);
+  const displayedPeriod = selectDisplayedBudgetPeriod({
+    periods,
+    now: new Date(),
+    timeZone: DEFAULT_BUDGET_TIME_ZONE,
+  });
+  if (!displayedPeriod || input.periodId !== displayedPeriod.id) {
+    return err({ code: "PERIOD_NOT_FOUND", field: "periodId" });
+  }
+
+  if (displayedPeriod.currencyCode !== currency.value) {
+    return err({ code: "CURRENCY_MISMATCH", field: "currencyCode" });
+  }
+
+  const category = await repository.findCategoryForOwner(owner.userId, input.categoryId);
+  if (!category) return err({ code: "CATEGORY_NOT_FOUND", field: "categoryId" });
+  if (category.archivedAt !== null) {
+    return err({ code: "CATEGORY_NOT_ACTIVE", field: "categoryId" });
+  }
+  if (!allowedCategoryTypes.has(category.type)) {
+    return err({ code: "INVALID_CATEGORY_TYPE", field: "categoryId" });
+  }
+
+  const plannedLines = await repository.listPlannedBudgetLinesForOwnerPeriod(
+    owner.userId,
+    displayedPeriod.id,
+  );
+  const existingPlannedLine = plannedLines.find((budgetLine) => budgetLine.id === input.budgetLineId);
+  if (!existingPlannedLine) {
+    return err({ code: "PLANNED_LINE_NOT_FOUND", field: "budgetLineId" });
+  }
+
+  const duplicateTargetCategory = plannedLines.some(
+    (budgetLine) => budgetLine.id !== input.budgetLineId && budgetLine.categoryId === category.id,
+  );
+  if (duplicateTargetCategory) {
+    return err({ code: "DUPLICATE_PLANNED_LINE", field: "categoryId" });
+  }
+
+  const budgetLine = await repository.updatePlannedBudgetLineForOwnerPeriod(owner.userId, {
+    periodId: displayedPeriod.id,
+    budgetLineId: input.budgetLineId,
+    categoryId: category.id,
+    plannedAmountMinor,
+    currencyCode: currency.value,
+  });
+
+  if (!budgetLine) return err({ code: "PLANNED_LINE_NOT_FOUND", field: "budgetLineId" });
   return ok({ budgetLine });
 }
 

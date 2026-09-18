@@ -8,6 +8,7 @@ const periodTransactionWorkflowPath = resolve("src/modules/budget/application/pe
 const budgetLineActionStatePath = resolve("src/app/budget/budget-line-action-state.ts");
 const budgetLineFormPath = resolve("src/app/budget/budget-line-form.tsx");
 const budgetLineDeleteFormPath = resolve("src/app/budget/budget-line-delete-form.tsx");
+const budgetLineEditFormPath = resolve("src/app/budget/budget-line-edit-form.tsx");
 const transactionActionStatePath = resolve("src/app/budget/budget-transaction-action-state.ts");
 const transactionFormPath = resolve("src/app/budget/budget-transaction-form.tsx");
 const transactionEditFormPath = resolve("src/app/budget/budget-transaction-edit-form.tsx");
@@ -328,6 +329,54 @@ describe("budget planning page contract", () => {
     expect(action).toMatch(/deletePlannedBudgetLine/);
     expect(action).toMatch(/stringField\(formData, "budgetLineId"\)/);
     expect(action).toMatch(/revalidatePath\("\/budget"\)/);
+  });
+
+  it("renders an accessible edit control for each current-period planned line", () => {
+    expect(existsSync(budgetLineEditFormPath)).toBe(true);
+    const page = source(pagePath);
+    const editForm = source(budgetLineEditFormPath);
+    const action = source(actionPath);
+    const actionState = source(budgetLineActionStatePath);
+
+    expect(page).toMatch(/BudgetLineEditForm/);
+    expect(page).toMatch(/categories=\{categories\}/);
+    expect(page).toMatch(/budgetLine=\{budgetLine\}/);
+    expect(page).toMatch(/currentPeriodId=\{currentPeriod\?\.id \?\? ""\}/);
+    expect(editForm).toMatch(/["']use client["']/);
+    expect(editForm).toMatch(/useActionState\(updateBudgetLineAction, initialBudgetLineActionState\)/);
+    expect(editForm).toMatch(/<form className="budget-line-edit-form" action=\{action\}/);
+    expect(editForm).toMatch(/type="hidden" name="periodId" value=\{currentPeriodId\}/);
+    expect(editForm).toMatch(/type="hidden" name="budgetLineId" value=\{budgetLine\.id\}/);
+    expect(editForm).toMatch(/name="categoryId"/);
+    expect(editForm).toMatch(/defaultValue=\{budgetLine\.categoryId\}/);
+    expect(editForm).toMatch(/name="plannedAmount"/);
+    expect(editForm).toMatch(/defaultValue=\{formatEditableAmount\(budgetLine\.plannedAmountMinor, budgetLine\.currencyCode\)\}/);
+    expect(editForm).toMatch(/inputMode="decimal"/);
+    expect(editForm).toMatch(/name="currencyCode"/);
+    expect(editForm).toMatch(/readOnly/);
+    expect(editForm).toMatch(/aria-label=\{`Editar monto planeado/);
+    expect(editForm).toMatch(/aria-live="polite"/);
+    expect(editForm).not.toMatch(/name="userId"|formData\.get\(["']userId["']\)/);
+    expect(actionState).toMatch(/"budgetLineId"/);
+    expect(action).toMatch(/updateBudgetLineAction/);
+    expect(action).toMatch(/updatePlannedBudgetLine/);
+    expect(action).toMatch(/stringField\(formData, "budgetLineId"\)/);
+    expect(action).toMatch(/revalidatePath\("\/budget"\)/);
+  });
+
+  it("treats planned-line edit-form currentPeriodId as display context while server code derives edit authority", () => {
+    const page = source(pagePath);
+    const editForm = source(budgetLineEditFormPath);
+    const action = source(actionPath);
+    const workflow = source(resolve("src/modules/budget/application/planned-budget-line-workflow.ts"));
+
+    expect(page).toMatch(/currentPeriodId=\{currentPeriod\?\.id \?\? ""\}/);
+    expect(editForm).toMatch(/type="hidden" name="periodId" value=\{currentPeriodId\}/);
+    expect(`${action}\n${workflow}`).toMatch(/listPeriodsForOwner\(owner\.userId\)/);
+    expect(`${action}\n${workflow}`).toMatch(/buildCurrentMonthStartForTimeZone|selectDisplayedBudgetPeriod/);
+    expect(workflow).toMatch(/input\.periodId !== displayedPeriod\.id|displayedPeriod\.id !== input\.periodId/);
+    expect(workflow).toMatch(/periodId: displayedPeriod\.id/);
+    expect(workflow).toMatch(/DUPLICATE_PLANNED_LINE/);
   });
 
   it("treats planned-line delete-form currentPeriodId as display context while server code derives deletion authority", () => {

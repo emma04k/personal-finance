@@ -13,6 +13,7 @@ import {
 import {
   deletePlannedBudgetLine,
   type PlannedBudgetLineError,
+  updatePlannedBudgetLine,
   upsertPlannedBudgetLine,
 } from "@/modules/budget/application/planned-budget-line-workflow";
 import {
@@ -121,6 +122,36 @@ export async function createBudgetLineAction(
   return {
     status: "success",
     message: "Monto planeado guardado.",
+    fieldErrors: {},
+  };
+}
+
+export async function updateBudgetLineAction(
+  previousState: BudgetLineActionState,
+  formData: FormData,
+): Promise<BudgetLineActionState> {
+  void previousState;
+
+  const owner = await requireCurrentOwnershipContext();
+  const repository = new PrismaOwnedPlanningRepository(prisma);
+  const result = await updatePlannedBudgetLine({
+    owner,
+    repository,
+    input: {
+      periodId: stringField(formData, "periodId"),
+      budgetLineId: stringField(formData, "budgetLineId"),
+      categoryId: stringField(formData, "categoryId"),
+      plannedAmount: stringField(formData, "plannedAmount"),
+      currencyCode: stringField(formData, "currencyCode"),
+    },
+  });
+
+  if (!result.ok) return budgetLineErrorState(result.error, "edit");
+
+  revalidatePath("/budget");
+  return {
+    status: "success",
+    message: "Monto planeado actualizado.",
     fieldErrors: {},
   };
 }
@@ -292,7 +323,10 @@ function categoryValidationError(
   };
 }
 
-function budgetLineErrorState(error: PlannedBudgetLineError): BudgetLineActionState {
+function budgetLineErrorState(
+  error: PlannedBudgetLineError,
+  operation: "create" | "edit" | "delete" = "delete",
+): BudgetLineActionState {
   switch (error.code) {
     case "INVALID_PLANNED_AMOUNT":
       return budgetLineValidationError("plannedAmount", "Usa un monto válido con los decimales permitidos para la moneda.");
@@ -310,8 +344,15 @@ function budgetLineErrorState(error: PlannedBudgetLineError): BudgetLineActionSt
       return budgetLineValidationError("currencyCode", "Selecciona una moneda soportada.");
     case "CURRENCY_MISMATCH":
       return budgetLineValidationError("currencyCode", "Usa la misma moneda del periodo seleccionado.");
+    case "DUPLICATE_PLANNED_LINE":
+      return budgetLineValidationError("categoryId", "Ya existe un monto planeado para esa categoría en este periodo.");
     case "PLANNED_LINE_NOT_FOUND":
-      return budgetLineValidationError("budgetLineId", "No se encontró un monto planeado propio para eliminar.");
+      return budgetLineValidationError(
+        "budgetLineId",
+        operation === "edit"
+          ? "No se encontró un monto planeado propio para editar."
+          : "No se encontró un monto planeado propio para eliminar.",
+      );
   }
 }
 

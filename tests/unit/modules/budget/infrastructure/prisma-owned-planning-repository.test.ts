@@ -364,6 +364,94 @@ describe("Prisma owner-scoped planning repository", () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it("updates planned lines by owner, displayed period, id, and planned kind", async () => {
+    const existingRecord = baseRecord();
+    const updatedRecord = {
+      ...existingRecord,
+      categoryId: "20000000-0000-0000-0000-000000000002",
+      plannedAmountMinor: BigInt("55500"),
+      category: { name: "Emergency fund", type: "SAVINGS" as const },
+    };
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const findFirst = vi.fn().mockResolvedValue(updatedRecord);
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      budgetLine: {
+        findMany: vi.fn(),
+        updateMany,
+        create: vi.fn(),
+        findFirst,
+        update: vi.fn(),
+      } as never,
+    });
+
+    await expect(
+      repository.updatePlannedBudgetLineForOwnerPeriod(ownerUserId, {
+        periodId: existingRecord.periodId,
+        budgetLineId: existingRecord.id,
+        categoryId: "20000000-0000-0000-0000-000000000002",
+        plannedAmountMinor: "55500",
+        currencyCode: "COP",
+      }),
+    ).resolves.toMatchObject({
+      id: existingRecord.id,
+      categoryId: "20000000-0000-0000-0000-000000000002",
+      categoryName: "Emergency fund",
+      plannedAmountMinor: "55500",
+    });
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: existingRecord.id,
+        userId: ownerUserId,
+        periodId: existingRecord.periodId,
+        kind: "PLANNED",
+      },
+      data: {
+        categoryId: "20000000-0000-0000-0000-000000000002",
+        plannedAmountMinor: BigInt("55500"),
+        currencyCode: "COP",
+      },
+    });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: existingRecord.id,
+        userId: ownerUserId,
+        periodId: existingRecord.periodId,
+        kind: "PLANNED",
+      },
+      include: { category: { select: { name: true, type: true } } },
+    });
+  });
+
+  it("returns null when no owner-period-kind scoped planned line is updated", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findFirst = vi.fn();
+    const repository = new PrismaOwnedPlanningRepository({
+      period: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      category: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+      budgetLine: {
+        findMany: vi.fn(),
+        updateMany,
+        create: vi.fn(),
+        findFirst,
+        update: vi.fn(),
+      } as never,
+    });
+
+    await expect(
+      repository.updatePlannedBudgetLineForOwnerPeriod(ownerUserId, {
+        periodId: otherPeriodId,
+        budgetLineId: "30000000-0000-0000-0000-000000000999",
+        categoryId: otherCategoryId,
+        plannedAmountMinor: "55500",
+        currencyCode: "COP",
+      }),
+    ).resolves.toBeNull();
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
   it("deletes planned lines by owner, period, id, and planned kind", async () => {
     const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new PrismaOwnedPlanningRepository({

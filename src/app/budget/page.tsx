@@ -27,6 +27,7 @@ import type { Money } from "@/modules/finance/domain/money";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { prisma } from "@/lib/prisma";
 import { BudgetLineForm } from "./budget-line-form";
+import { BudgetLineEditForm } from "./budget-line-edit-form";
 import { BudgetLineDeleteForm } from "./budget-line-delete-form";
 import { BudgetCategoryForm } from "./budget-category-form";
 import { BudgetPeriodForm } from "./budget-period-form";
@@ -273,6 +274,11 @@ function BudgetPlanningContent({
                 <span>{budgetLine.categoryName}</span>
                 <strong>{formatBudgetLineAmount(budgetLine.plannedAmountMinor, budgetLine.currencyCode)}</strong>
                 <small>{formatCategoryTypeLabel(budgetLine.categoryType)}</small>
+                <BudgetLineEditForm
+                  categories={categories}
+                  budgetLine={budgetLine}
+                  currentPeriodId={currentPeriod?.id ?? ""}
+                />
                 <BudgetLineDeleteForm
                   budgetLine={budgetLine}
                   currentPeriodId={currentPeriod?.id ?? ""}
