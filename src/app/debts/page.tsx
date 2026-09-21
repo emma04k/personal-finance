@@ -1,5 +1,8 @@
 import { AppShell } from "@/components/app-shell";
+import { formatCurrencyMinorUnits } from "@/modules/finance/application/currency-amount";
 import type { DebtBand } from "@/modules/debt/domain/debt-diagnostic";
+import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
+import { loadDebtAccountListState } from "./debt-account-list-state";
 
 const debtDiagnosticBands = [
   {
@@ -33,7 +36,9 @@ const debtDiagnosticBands = [
   readonly description: string;
 }>;
 
-export default function DebtsPage() {
+export default async function DebtsPage() {
+  const state = await loadDebtAccountListState();
+
   return (
     <AppShell activeHref="/debts">
       <section className="debt-page" aria-labelledby="debt-diagnostic-heading">
@@ -80,16 +85,84 @@ export default function DebtsPage() {
           </div>
         </section>
 
-        <section className="debt-empty-state" role="status" aria-labelledby="debt-empty-heading">
-          <div>
-            <p className="eyebrow">Current state</p>
-            <h2 id="debt-empty-heading">No debt accounts are configured yet.</h2>
-            <p>
-              This page did not run a debt calculation. Persisted debt account entry will arrive in a later phase.
-            </p>
-          </div>
-        </section>
+        {state.status === "authentication-required"
+          ? <DebtAuthenticationRequiredState />
+          : <DebtAccountSection accounts={state.accounts} />}
       </section>
     </AppShell>
   );
+}
+
+function DebtAuthenticationRequiredState() {
+  return (
+    <section className="debt-empty-state" role="status" aria-labelledby="debt-auth-heading">
+      <div>
+        <p className="eyebrow">Current state</p>
+        <h2 id="debt-auth-heading">Sign in to view debt accounts.</h2>
+        <p>
+          Debt accounts only load from an active authenticated owner session.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function DebtAccountSection({ accounts }: { readonly accounts: readonly OwnedDebtAccount[] }) {
+  if (accounts.length === 0) {
+    return (
+      <section className="debt-empty-state" role="status" aria-labelledby="debt-empty-heading">
+        <div>
+          <p className="eyebrow">Current state</p>
+          <h2 id="debt-empty-heading">No debt accounts are configured yet.</h2>
+          <p>
+            This page did not run a debt calculation. Add accounts in a later phase to review persisted balances here.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="debt-panel" aria-labelledby="debt-accounts-heading">
+      <div>
+        <p className="eyebrow">Persisted accounts</p>
+        <h2 id="debt-accounts-heading">Active debt accounts</h2>
+        <p>
+          These rows show stored account fields for review. They do not calculate a diagnostic level.
+        </p>
+      </div>
+
+      <div className="debt-account-grid" aria-label="Active debt accounts">
+        {accounts.map((account) => (
+          <article className="debt-account-card" key={account.id}>
+            <div>
+              <p className="eyebrow">Account</p>
+              <h3>{account.name}</h3>
+              <small>{account.creditorName ? `Creditor: ${account.creditorName}` : "Creditor not recorded"}</small>
+            </div>
+            <dl>
+              <div>
+                <dt>Current balance</dt>
+                <dd>{formatCurrencyMinorUnits(account.currentBalanceMinor, account.currencyCode)}</dd>
+              </div>
+              <div>
+                <dt>Required monthly payment</dt>
+                <dd>{formatCurrencyMinorUnits(account.defaultRequiredPaymentMinor, account.currencyCode)}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{formatDebtAccountStatus(account.status)}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatDebtAccountStatus(status: OwnedDebtAccount["status"]) {
+  if (status === "ACTIVE") return "Active";
+  if (status === "PAID_OFF") return "Paid off";
+  return "Closed";
 }
