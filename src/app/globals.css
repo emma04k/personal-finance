@@ -888,6 +888,14 @@ h2 {
   gap: 12px;
 }
 
+.debt-account-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 100%;
+  min-width: 0;
+  gap: 12px;
+}
+
 .debt-band-card {
   display: grid;
   min-width: 0;
@@ -896,6 +904,54 @@ h2 {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
+}
+
+.debt-account-card {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.debt-account-card h3,
+.debt-account-card p,
+.debt-account-card small,
+.debt-account-card dt,
+.debt-account-card dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.debt-account-card h3 {
+  margin: 0;
+}
+
+.debt-account-card small,
+.debt-account-card dt {
+  color: var(--text-muted);
+}
+
+.debt-account-card dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.debt-account-card dt {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.debt-account-card dd {
+  margin: 2px 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .debt-band-card p,
