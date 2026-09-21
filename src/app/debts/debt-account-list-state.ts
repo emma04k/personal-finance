@@ -20,7 +20,7 @@ export type DebtAccountListState =
 
 type DebtAccountListStateDependencies = Readonly<{
   getOwner?: () => Promise<OwnershipContext>;
-  repository?: OwnedDebtAccountRepository;
+  repository?: Pick<OwnedDebtAccountRepository, "listActiveDebtAccountsForOwner">;
 }>;
 
 export async function loadDebtAccountListState(

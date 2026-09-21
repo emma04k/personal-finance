@@ -5,6 +5,30 @@ const ownerUserId = "00000000-0000-0000-0000-000000000001";
 const otherUserId = "00000000-0000-0000-0000-000000000002";
 
 describe("owner-scoped debt account repository", () => {
+  it("creates active debt accounts for the requested owner and lists them after persistence", async () => {
+    const repository = new InMemoryOwnedDebtAccountRepository({ accounts: [] });
+
+    const created = await repository.createDebtAccountForOwner(ownerUserId, {
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: "1250000",
+      defaultRequiredPaymentMinor: "15000",
+      currencyCode: "USD",
+    });
+
+    expect(created).toMatchObject({
+      userId: ownerUserId,
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: "1250000",
+      defaultRequiredPaymentMinor: "15000",
+      currencyCode: "USD",
+      status: "ACTIVE",
+    });
+    await expect(repository.listActiveDebtAccountsForOwner(ownerUserId)).resolves.toEqual([created]);
+    await expect(repository.listActiveDebtAccountsForOwner(otherUserId)).resolves.toEqual([]);
+  });
+
   it("lists only active debt accounts for the requested owner", async () => {
     const repository = new InMemoryOwnedDebtAccountRepository({
       accounts: [

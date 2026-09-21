@@ -3,6 +3,7 @@ import { formatCurrencyMinorUnits } from "@/modules/finance/application/currency
 import type { DebtBand } from "@/modules/debt/domain/debt-diagnostic";
 import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
 import { loadDebtAccountListState } from "./debt-account-list-state";
+import { DebtAccountForm } from "./debt-account-form";
 
 const debtDiagnosticBands = [
   {
@@ -87,7 +88,12 @@ export default async function DebtsPage() {
 
         {state.status === "authentication-required"
           ? <DebtAuthenticationRequiredState />
-          : <DebtAccountSection accounts={state.accounts} />}
+          : (
+            <>
+              <DebtAccountCreateSection />
+              <DebtAccountSection accounts={state.accounts} />
+            </>
+          )}
       </section>
     </AppShell>
   );
@@ -107,6 +113,21 @@ function DebtAuthenticationRequiredState() {
   );
 }
 
+function DebtAccountCreateSection() {
+  return (
+    <section className="debt-panel" aria-labelledby="debt-account-create-heading">
+      <div>
+        <p className="eyebrow">Add account</p>
+        <h2 id="debt-account-create-heading">Create a debt account</h2>
+        <p>
+          Add the account fields needed for the active debt account list. New accounts are stored as active.
+        </p>
+      </div>
+      <DebtAccountForm />
+    </section>
+  );
+}
+
 function DebtAccountSection({ accounts }: { readonly accounts: readonly OwnedDebtAccount[] }) {
   if (accounts.length === 0) {
     return (
@@ -115,7 +136,7 @@ function DebtAccountSection({ accounts }: { readonly accounts: readonly OwnedDeb
           <p className="eyebrow">Current state</p>
           <h2 id="debt-empty-heading">No debt accounts are configured yet.</h2>
           <p>
-            This page did not run a debt calculation. Add accounts in a later phase to review persisted balances here.
+            This page did not run a debt calculation. Use the account form to add balances for review here.
           </p>
         </div>
       </section>

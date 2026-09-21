@@ -882,6 +882,87 @@ h2 {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
 }
 
+.debt-account-form,
+.debt-form-grid {
+  display: grid;
+  max-width: 100%;
+  min-width: 0;
+  gap: 10px;
+}
+
+.debt-form-grid > div {
+  min-width: 0;
+}
+
+.debt-account-form label {
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.debt-account-form .field-help,
+.debt-account-form .field-error {
+  min-height: 1.35em;
+  margin: -4px 0 4px;
+  font-size: 0.9rem;
+}
+
+.debt-account-form .field-help {
+  color: var(--text-muted);
+}
+
+.debt-account-form .field-error {
+  color: #b42318;
+}
+
+.debt-account-form [aria-invalid="true"] {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px #b42318;
+}
+
+.debt-account-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background);
+  font-size: 16px;
+}
+
+.debt-account-form input:disabled,
+.debt-account-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.debt-account-form .form-feedback {
+  margin: 2px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  font-weight: 700;
+}
+
+.debt-account-form .form-feedback-error {
+  border-left: 4px solid #b42318;
+}
+
+.debt-account-form .form-feedback-success {
+  border-left: 4px solid var(--primary);
+}
+
+.debt-account-form button {
+  min-height: 48px;
+  margin-top: 4px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--primary);
+  color: var(--surface);
+  font-weight: 750;
+}
+
 .debt-band-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

@@ -6,7 +6,9 @@ const debtsPagePath = resolve("src/app/debts/page.tsx");
 const debtsStatePath = resolve("src/app/debts/debt-account-list-state.ts");
 const debtRepositoryPath = resolve("src/modules/debt/application/owned-debt-account-repository.ts");
 const prismaDebtRepositoryPath = resolve("src/modules/debt/infrastructure/prisma-owned-debt-account-repository.ts");
+const debtWorkflowPath = resolve("src/modules/debt/application/debt-account-workflow.ts");
 const debtsActionsPath = resolve("src/app/debts/actions.ts");
+const debtAccountFormPath = resolve("src/app/debts/debt-account-form.tsx");
 const debtsRoutePath = resolve("src/app/debts/route.ts");
 const stylesheetPath = resolve("src/app/globals.css");
 
@@ -56,8 +58,33 @@ describe("debt diagnostic foundation page contract", () => {
     expect(page).toMatch(/aria-labelledby="debt-empty-heading"/);
     expect(page).toMatch(/No debt accounts are configured yet\./);
     expect(page).toMatch(/This page did not run a debt calculation\./);
-    expect(page).toMatch(/Add accounts in a later phase to review persisted balances here\./i);
+    expect(page).toMatch(/Use the account form to add balances for review here\./i);
     expect(page).not.toMatch(/calculated diagnostic|calculated result|your level is/i);
+  });
+
+  it("renders an authenticated debt account create form without accepting a client owner id", () => {
+    expect(existsSync(debtsActionsPath)).toBe(true);
+    expect(existsSync(debtAccountFormPath)).toBe(true);
+    const page = source(debtsPagePath);
+    const form = source(debtAccountFormPath);
+    const actions = source(debtsActionsPath);
+    const workflow = source(debtWorkflowPath);
+
+    expect(page).toMatch(/<DebtAccountForm \/>/);
+    expect(form).toMatch(/useActionState\(\s*createDebtAccountAction,\s*initialDebtAccountActionState,?\s*\)/);
+    expect(form).toMatch(/name="name"/);
+    expect(form).toMatch(/name="creditorName"/);
+    expect(form).toMatch(/name="currentBalance"/);
+    expect(form).toMatch(/name="defaultRequiredPayment"/);
+    expect(form).toMatch(/name="currencyCode"/);
+    const moneyPattern = "(0|[1-9][0-9]*)(\\.[0-9]+)?";
+    expect(form).toContain(`pattern="${moneyPattern}"`);
+    expect(new RegExp(`^(?:${moneyPattern})$`).test("0.50")).toBe(true);
+    expect(new RegExp(`^(?:${moneyPattern})$`).test("0.00")).toBe(true);
+    expect(form).not.toMatch(/name="userId"|name="debtAccountId"/);
+    expect(actions).toMatch(/requireCurrentOwnershipContext\(\)/);
+    expect(workflow).toMatch(/createDebtAccountForOwner\(owner\.userId/);
+    expect(actions).not.toMatch(/formData\.get\(["']userId["']\)/);
   });
 
   it("loads debt accounts server-side from the authenticated owner context", () => {
@@ -130,13 +157,13 @@ describe("debt diagnostic foundation page contract", () => {
     expect(debtBandCardText).toMatch(/overflow-wrap:\s*anywhere\s*;/);
   });
 
-  it("keeps the account list read-only without mutation, charts, imports, or AI scope", () => {
+  it("keeps debt creation narrowly scoped without edit, archive, payment, charts, imports, or AI scope", () => {
     const page = source(debtsPagePath);
     const state = source(debtsStatePath);
+    const actions = source(debtsActionsPath);
 
-    expect(existsSync(debtsActionsPath)).toBe(false);
     expect(existsSync(debtsRoutePath)).toBe(false);
-    expect(page).not.toMatch(/@\/lib\/prisma|@prisma\/client|getServerSession|["']use server["']|formData|get\(["'](?:userId|debtAccountId|currencyCode)["']\)/);
-    expect(`${page}\n${state}`).not.toMatch(/\b(?:create|update|delete|archive|recordPayment|recharts|Chart|CSV|XLSX|PDF|workbook|import job|AI|advisor|provider|bank sync|external integration)\b/i);
+    expect(page).not.toMatch(/@\/lib\/prisma|@prisma\/client|getServerSession|["']use server["']|formData|get\(["'](?:userId|debtAccountId)["']\)/);
+    expect(`${page}\n${state}\n${actions}`).not.toMatch(/\b(?:update|delete|archive|recordPayment|recharts|Chart|CSV|XLSX|PDF|workbook|import job|AI|advisor|provider|bank sync|external integration)\b/i);
   });
 });
