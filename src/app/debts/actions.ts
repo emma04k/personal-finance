@@ -9,6 +9,8 @@ import { requireCurrentOwnershipContext } from "@/modules/auth/application/curre
 import {
   createDebtAccount,
   type DebtAccountCreationError,
+  type DebtAccountUpdateError,
+  updateDebtAccount,
 } from "@/modules/debt/application/debt-account-workflow";
 import { PrismaOwnedDebtAccountRepository } from "@/modules/debt/infrastructure/prisma-owned-debt-account-repository";
 import { prisma } from "@/lib/prisma";
@@ -60,8 +62,59 @@ export async function createDebtAccountAction(
   };
 }
 
-function debtAccountErrorState(error: DebtAccountCreationError): DebtAccountActionState {
+export async function updateDebtAccountAction(
+  previousState: DebtAccountActionState,
+  formData: FormData,
+): Promise<DebtAccountActionState> {
+  void previousState;
+
+  let owner;
+  try {
+    owner = await requireCurrentOwnershipContext();
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError || error instanceof UserNotActiveError) {
+      return {
+        status: "error",
+        message: "Sign in with an active account to update debt accounts.",
+        fieldErrors: {},
+      };
+    }
+    throw error;
+  }
+
+  const repository = new PrismaOwnedDebtAccountRepository(prisma);
+  const debtAccountId = formData.get("debtAccountId");
+  const result = await updateDebtAccount({
+    owner,
+    repository,
+    input: {
+      debtAccountId: typeof debtAccountId === "string" ? debtAccountId : "",
+      name: stringField(formData, "name"),
+      creditorName: optionalStringField(formData, "creditorName"),
+      currentBalance: stringField(formData, "currentBalance"),
+      defaultRequiredPayment: stringField(formData, "defaultRequiredPayment"),
+      currencyCode: stringField(formData, "currencyCode"),
+    },
+  });
+
+  if (!result.ok) return debtAccountErrorState(result.error);
+
+  revalidatePath("/debts");
+  return {
+    status: "success",
+    message: "Debt account updated.",
+    fieldErrors: {},
+  };
+}
+
+function debtAccountErrorState(error: DebtAccountCreationError | DebtAccountUpdateError): DebtAccountActionState {
   switch (error.code) {
+    case "DEBT_ACCOUNT_ID_REQUIRED":
+      return debtAccountValidationError("debtAccountId", "Select a debt account to update.");
+    case "INVALID_DEBT_ACCOUNT_ID":
+      return debtAccountValidationError("debtAccountId", "Select a valid debt account to update.");
+    case "DEBT_ACCOUNT_NOT_FOUND":
+      return debtAccountValidationError("debtAccountId", "Debt account was not found for your active account.");
     case "ACCOUNT_NAME_REQUIRED":
       return debtAccountValidationError("name", "Enter an account name.");
     case "ACCOUNT_NAME_TOO_LONG":

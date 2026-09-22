@@ -1,4 +1,4 @@
-export type DebtAccountActionField = "name" | "creditorName" | "currentBalance" | "defaultRequiredPayment" | "currencyCode";
+export type DebtAccountActionField = "debtAccountId" | "name" | "creditorName" | "currentBalance" | "defaultRequiredPayment" | "currencyCode";
 
 export type DebtAccountActionFieldErrors = Partial<Record<DebtAccountActionField, string>>;
 

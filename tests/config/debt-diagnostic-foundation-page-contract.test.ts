@@ -9,6 +9,7 @@ const prismaDebtRepositoryPath = resolve("src/modules/debt/infrastructure/prisma
 const debtWorkflowPath = resolve("src/modules/debt/application/debt-account-workflow.ts");
 const debtsActionsPath = resolve("src/app/debts/actions.ts");
 const debtAccountFormPath = resolve("src/app/debts/debt-account-form.tsx");
+const debtAccountEditFormPath = resolve("src/app/debts/debt-account-edit-form.tsx");
 const debtsRoutePath = resolve("src/app/debts/route.ts");
 const stylesheetPath = resolve("src/app/globals.css");
 
@@ -112,6 +113,39 @@ describe("debt diagnostic foundation page contract", () => {
     expect(page).not.toMatch(/parseFloat|Number\(|toFixed\(|Math\.round\(/);
   });
 
+  it("provides an owner-scoped edit form for each active account without accepting client owner ids", () => {
+    expect(existsSync(debtAccountEditFormPath)).toBe(true);
+    const page = source(debtsPagePath);
+    const editForm = source(debtAccountEditFormPath);
+    const actions = source(debtsActionsPath);
+    const workflow = source(debtWorkflowPath);
+
+    expect(page).toMatch(/<DebtAccountEditForm account=\{toDebtAccountEditFormAccount\(account\)\} \/>/);
+    expect(page).not.toMatch(/<DebtAccountEditForm account=\{account\} \/>/);
+    expect(page).toMatch(/function toDebtAccountEditFormAccount\(account: OwnedDebtAccount\): DebtAccountEditFormAccount/);
+    expect(page).toMatch(/id: account\.id,[\s\S]*currencyCode: account\.currencyCode/);
+    expect(editForm).toMatch(/useActionState\(\s*updateDebtAccountAction,\s*initialDebtAccountActionState,?\s*\)/);
+    expect(editForm).toMatch(/export type DebtAccountEditFormAccount = Pick<[\s\S]*"currencyCode"[\s\S]*>;/);
+    expect(editForm).not.toMatch(/export function DebtAccountEditForm\(\{ account \}: \{ readonly account: OwnedDebtAccount \}\)/);
+    expect(editForm).toMatch(/name="debtAccountId"/);
+    expect(editForm).toMatch(/value=\{account\.id\}/);
+    expect(editForm).toMatch(/name="name"/);
+    expect(editForm).toMatch(/name="creditorName"/);
+    expect(editForm).toMatch(/name="currentBalance"/);
+    expect(editForm).toMatch(/name="defaultRequiredPayment"/);
+    expect(editForm).toMatch(/name="currencyCode"/);
+    const moneyPattern = "(0|[1-9][0-9]*)(\\.[0-9]+)?";
+    expect(editForm).toContain(`pattern="${moneyPattern}"`);
+    expect(new RegExp(`^(?:${moneyPattern})$`).test("0.50")).toBe(true);
+    expect(new RegExp(`^(?:${moneyPattern})$`).test("0.00")).toBe(true);
+    expect(editForm).not.toMatch(/name="userId"/);
+    expect(actions).toMatch(/updateDebtAccountAction/);
+    expect(actions).toMatch(/requireCurrentOwnershipContext\(\)/);
+    expect(actions).toMatch(/formData\.get\("debtAccountId"\)/);
+    expect(actions).not.toMatch(/formData\.get\(["']userId["']\)/);
+    expect(workflow).toMatch(/updateDebtAccountForOwner\(owner\.userId, debtAccountId/);
+  });
+
   it("keeps unauthenticated users in a safe sign-in-required state", () => {
     const page = source(debtsPagePath);
     const state = source(debtsStatePath);
@@ -157,13 +191,13 @@ describe("debt diagnostic foundation page contract", () => {
     expect(debtBandCardText).toMatch(/overflow-wrap:\s*anywhere\s*;/);
   });
 
-  it("keeps debt creation narrowly scoped without edit, archive, payment, charts, imports, or AI scope", () => {
+  it("keeps debt account management narrowly scoped without archive, payment, charts, imports, or AI scope", () => {
     const page = source(debtsPagePath);
     const state = source(debtsStatePath);
     const actions = source(debtsActionsPath);
 
     expect(existsSync(debtsRoutePath)).toBe(false);
     expect(page).not.toMatch(/@\/lib\/prisma|@prisma\/client|getServerSession|["']use server["']|formData|get\(["'](?:userId|debtAccountId)["']\)/);
-    expect(`${page}\n${state}\n${actions}`).not.toMatch(/\b(?:update|delete|archive|recordPayment|recharts|Chart|CSV|XLSX|PDF|workbook|import job|AI|advisor|provider|bank sync|external integration)\b/i);
+    expect(`${page}\n${state}\n${actions}`).not.toMatch(/\b(?:delete|archive|recordPayment|recharts|Chart|CSV|XLSX|PDF|workbook|import job|AI|advisor|provider|bank sync|external integration)\b/i);
   });
 });

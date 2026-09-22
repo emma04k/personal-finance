@@ -2,6 +2,7 @@ import type {
   CreateDebtAccountForOwnerInput,
   OwnedDebtAccount,
   OwnedDebtAccountRepository,
+  UpdateDebtAccountForOwnerInput,
 } from "@/modules/debt/application/owned-debt-account-repository";
 
 type PrismaDebtAccountRecord = Omit<
@@ -17,7 +18,9 @@ type PrismaDelegateMethod = (args: never) => Promise<unknown>;
 type DebtAccountPrismaClient = {
   readonly debtAccount: {
     readonly findMany: PrismaDelegateMethod;
+    readonly findFirst: PrismaDelegateMethod;
     readonly create: PrismaDelegateMethod;
+    readonly updateMany: PrismaDelegateMethod;
   };
 };
 
@@ -65,6 +68,33 @@ export class PrismaOwnedDebtAccountRepository implements OwnedDebtAccountReposit
 
     return toOwnedDebtAccount(record);
   }
+
+  async updateDebtAccountForOwner(
+    ownerUserId: string,
+    debtAccountId: string,
+    input: UpdateDebtAccountForOwnerInput,
+  ) {
+    const where = { id: debtAccountId, userId: ownerUserId, status: "ACTIVE" };
+    const updateResult = await updateManyDebtAccounts(this.db.debtAccount, {
+      where,
+      data: {
+        name: input.name,
+        creditorName: input.creditorName,
+        currencyCode: input.currencyCode,
+        currentBalanceMinor: BigInt(input.currentBalanceMinor),
+        defaultRequiredPaymentMinor: BigInt(input.defaultRequiredPaymentMinor),
+      },
+    });
+
+    if (updateResult.count === 0) return null;
+
+    const record = await findFirstDebtAccount(this.db.debtAccount, {
+      select: debtAccountSelect,
+      where,
+    });
+
+    return record ? toOwnedDebtAccount(record) : null;
+  }
 }
 
 function toOwnedDebtAccount(record: PrismaDebtAccountRecord): OwnedDebtAccount {
@@ -96,4 +126,22 @@ async function createDebtAccount(
   return (delegate.create as (
     args: Record<string, unknown>
   ) => Promise<PrismaDebtAccountRecord>)(args);
+}
+
+async function updateManyDebtAccounts(
+  delegate: DebtAccountPrismaClient["debtAccount"],
+  args: Record<string, unknown>,
+) {
+  return (delegate.updateMany as (
+    args: Record<string, unknown>
+  ) => Promise<{ readonly count: number }>)(args);
+}
+
+async function findFirstDebtAccount(
+  delegate: DebtAccountPrismaClient["debtAccount"],
+  args: Record<string, unknown>,
+) {
+  return (delegate.findFirst as (
+    args: Record<string, unknown>
+  ) => Promise<PrismaDebtAccountRecord | null>)(args);
 }
