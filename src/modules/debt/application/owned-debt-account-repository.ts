@@ -19,12 +19,19 @@ export type CreateDebtAccountForOwnerInput = {
   readonly currencyCode: string;
 };
 
+export type UpdateDebtAccountForOwnerInput = CreateDebtAccountForOwnerInput;
+
 export type OwnedDebtAccountRepository = {
   readonly listActiveDebtAccountsForOwner: (ownerUserId: string) => Promise<readonly OwnedDebtAccount[]>;
   readonly createDebtAccountForOwner: (
     ownerUserId: string,
     input: CreateDebtAccountForOwnerInput,
   ) => Promise<OwnedDebtAccount>;
+  readonly updateDebtAccountForOwner: (
+    ownerUserId: string,
+    debtAccountId: string,
+    input: UpdateDebtAccountForOwnerInput,
+  ) => Promise<OwnedDebtAccount | null>;
 };
 
 export class InMemoryOwnedDebtAccountRepository implements OwnedDebtAccountRepository {
@@ -56,5 +63,27 @@ export class InMemoryOwnedDebtAccountRepository implements OwnedDebtAccountRepos
     };
     this.#accounts.push(account);
     return account;
+  }
+
+  async updateDebtAccountForOwner(
+    ownerUserId: string,
+    debtAccountId: string,
+    input: UpdateDebtAccountForOwnerInput,
+  ) {
+    const accountIndex = this.#accounts.findIndex(
+      (account) => account.id === debtAccountId && account.userId === ownerUserId && account.status === "ACTIVE",
+    );
+    if (accountIndex === -1) return null;
+
+    const updatedAccount: OwnedDebtAccount = {
+      ...this.#accounts[accountIndex],
+      name: input.name,
+      creditorName: input.creditorName,
+      currentBalanceMinor: input.currentBalanceMinor,
+      defaultRequiredPaymentMinor: input.defaultRequiredPaymentMinor,
+      currencyCode: input.currencyCode,
+    };
+    this.#accounts[accountIndex] = updatedAccount;
+    return updatedAccount;
   }
 }

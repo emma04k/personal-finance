@@ -4,6 +4,7 @@ import type { DebtBand } from "@/modules/debt/domain/debt-diagnostic";
 import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
 import { loadDebtAccountListState } from "./debt-account-list-state";
 import { DebtAccountForm } from "./debt-account-form";
+import { DebtAccountEditForm, type DebtAccountEditFormAccount } from "./debt-account-edit-form";
 
 const debtDiagnosticBands = [
   {
@@ -175,11 +176,23 @@ function DebtAccountSection({ accounts }: { readonly accounts: readonly OwnedDeb
                 <dd>{formatDebtAccountStatus(account.status)}</dd>
               </div>
             </dl>
+            <DebtAccountEditForm account={toDebtAccountEditFormAccount(account)} />
           </article>
         ))}
       </div>
     </section>
   );
+}
+
+function toDebtAccountEditFormAccount(account: OwnedDebtAccount): DebtAccountEditFormAccount {
+  return {
+    id: account.id,
+    name: account.name,
+    creditorName: account.creditorName,
+    currentBalanceMinor: account.currentBalanceMinor,
+    defaultRequiredPaymentMinor: account.defaultRequiredPaymentMinor,
+    currencyCode: account.currencyCode,
+  };
 }
 
 function formatDebtAccountStatus(status: OwnedDebtAccount["status"]) {
