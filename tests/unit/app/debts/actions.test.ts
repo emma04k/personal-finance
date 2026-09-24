@@ -28,11 +28,22 @@ const mocks = vi.hoisted(() => {
     currencyCode: input.currencyCode,
     status: "ACTIVE" as const,
   }));
+  const archiveDebtAccountForOwner = vi.fn(async (ownerUserId: string, debtAccountId: string): Promise<OwnedDebtAccount | null> => ({
+    id: debtAccountId,
+    userId: ownerUserId,
+    name: "Student loan",
+    creditorName: "Federal Servicer",
+    currentBalanceMinor: "1250075",
+    defaultRequiredPaymentMinor: "15025",
+    currencyCode: "USD",
+    status: "CLOSED" as const,
+  }));
   return {
     owner,
-    repository: { createDebtAccountForOwner, updateDebtAccountForOwner },
+    repository: { createDebtAccountForOwner, updateDebtAccountForOwner, archiveDebtAccountForOwner },
     createDebtAccountForOwner,
     updateDebtAccountForOwner,
+    archiveDebtAccountForOwner,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
     revalidatePath: vi.fn(),
   };
@@ -56,7 +67,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {},
 }));
 
-import { createDebtAccountAction, updateDebtAccountAction } from "@/app/debts/actions";
+import { archiveDebtAccountAction, createDebtAccountAction, updateDebtAccountAction } from "@/app/debts/actions";
 import { initialDebtAccountActionState } from "@/app/debts/debt-account-action-state";
 
 function debtAccountForm(overrides: Partial<Record<"debtAccountId" | "name" | "creditorName" | "currentBalance" | "defaultRequiredPayment" | "currencyCode" | "userId", string>> = {}) {
@@ -95,6 +106,16 @@ describe("debt account server action", () => {
       defaultRequiredPaymentMinor: input.defaultRequiredPaymentMinor,
       currencyCode: input.currencyCode,
       status: "ACTIVE" as const,
+    }));
+    mocks.archiveDebtAccountForOwner.mockImplementation(async (ownerUserId: string, debtAccountId: string) => ({
+      id: debtAccountId,
+      userId: ownerUserId,
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: "1250075",
+      defaultRequiredPaymentMinor: "15025",
+      currencyCode: "USD",
+      status: "CLOSED" as const,
     }));
   });
 
@@ -239,6 +260,78 @@ describe("debt account server action", () => {
       fieldErrors: {},
     });
     expect(mocks.updateDebtAccountForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("archives debt accounts from authenticated owner context without accepting client owner ids", async () => {
+    const result = await archiveDebtAccountAction(
+      initialDebtAccountActionState,
+      debtAccountForm({
+        debtAccountId: "10000000-0000-0000-0000-000000000001",
+        userId: "00000000-0000-0000-0000-000000000999",
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Debt account archived.",
+      fieldErrors: {},
+    });
+    expect(mocks.archiveDebtAccountForOwner).toHaveBeenCalledWith(mocks.owner.userId, "10000000-0000-0000-0000-000000000001");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/debts");
+  });
+
+  it.each([
+    ["debtAccountId", { debtAccountId: "   " }, "Select a debt account to archive."],
+    ["debtAccountId", { debtAccountId: "not-a-uuid" }, "Select a valid debt account to archive."],
+  ] as const)("returns safe archive validation feedback for %s", async (field, overrides, message) => {
+    const result = await archiveDebtAccountAction(
+      initialDebtAccountActionState,
+      debtAccountForm(overrides),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message,
+      fieldErrors: { [field]: message },
+    });
+    expect(mocks.archiveDebtAccountForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("returns safe feedback when archive targets a missing, not-owned, or inactive debt account", async () => {
+    mocks.archiveDebtAccountForOwner.mockResolvedValueOnce(null);
+
+    const result = await archiveDebtAccountAction(
+      initialDebtAccountActionState,
+      debtAccountForm({ debtAccountId: "10000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Debt account was not found for your active account.",
+      fieldErrors: { debtAccountId: "Debt account was not found for your active account." },
+    });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [new AuthenticationRequiredError()],
+    [new UserNotActiveError()],
+  ])("fails closed before archive persistence when active owner context is unavailable", async (authError) => {
+    mocks.requireCurrentOwnershipContext.mockRejectedValueOnce(authError);
+
+    const result = await archiveDebtAccountAction(
+      initialDebtAccountActionState,
+      debtAccountForm({ debtAccountId: "10000000-0000-0000-0000-000000000001" }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Sign in with an active account to archive debt accounts.",
+      fieldErrors: {},
+    });
+    expect(mocks.archiveDebtAccountForOwner).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

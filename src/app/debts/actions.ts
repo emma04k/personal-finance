@@ -7,7 +7,9 @@ import {
 } from "@/modules/auth/application/ownership-context";
 import { requireCurrentOwnershipContext } from "@/modules/auth/application/current-ownership-context";
 import {
+  archiveDebtAccount,
   createDebtAccount,
+  type DebtAccountArchiveError,
   type DebtAccountCreationError,
   type DebtAccountUpdateError,
   updateDebtAccount,
@@ -97,7 +99,7 @@ export async function updateDebtAccountAction(
     },
   });
 
-  if (!result.ok) return debtAccountErrorState(result.error);
+  if (!result.ok) return debtAccountErrorState(result.error, "update");
 
   revalidatePath("/debts");
   return {
@@ -107,12 +109,56 @@ export async function updateDebtAccountAction(
   };
 }
 
-function debtAccountErrorState(error: DebtAccountCreationError | DebtAccountUpdateError): DebtAccountActionState {
+export async function archiveDebtAccountAction(
+  previousState: DebtAccountActionState,
+  formData: FormData,
+): Promise<DebtAccountActionState> {
+  void previousState;
+
+  let owner;
+  try {
+    owner = await requireCurrentOwnershipContext();
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError || error instanceof UserNotActiveError) {
+      return {
+        status: "error",
+        message: "Sign in with an active account to archive debt accounts.",
+        fieldErrors: {},
+      };
+    }
+    throw error;
+  }
+
+  const repository = new PrismaOwnedDebtAccountRepository(prisma);
+  const debtAccountId = formData.get("debtAccountId");
+  const result = await archiveDebtAccount({
+    owner,
+    repository,
+    input: {
+      debtAccountId: typeof debtAccountId === "string" ? debtAccountId : "",
+    },
+  });
+
+  if (!result.ok) return debtAccountErrorState(result.error, "archive");
+
+  revalidatePath("/debts");
+  return {
+    status: "success",
+    message: "Debt account archived.",
+    fieldErrors: {},
+  };
+}
+
+function debtAccountErrorState(
+  error: DebtAccountCreationError | DebtAccountUpdateError | DebtAccountArchiveError,
+  action: "update" | "archive" = "update",
+): DebtAccountActionState {
+  const actionVerb = action === "archive" ? "archive" : "update";
   switch (error.code) {
     case "DEBT_ACCOUNT_ID_REQUIRED":
-      return debtAccountValidationError("debtAccountId", "Select a debt account to update.");
+      return debtAccountValidationError("debtAccountId", `Select a debt account to ${actionVerb}.`);
     case "INVALID_DEBT_ACCOUNT_ID":
-      return debtAccountValidationError("debtAccountId", "Select a valid debt account to update.");
+      return debtAccountValidationError("debtAccountId", `Select a valid debt account to ${actionVerb}.`);
     case "DEBT_ACCOUNT_NOT_FOUND":
       return debtAccountValidationError("debtAccountId", "Debt account was not found for your active account.");
     case "ACCOUNT_NAME_REQUIRED":

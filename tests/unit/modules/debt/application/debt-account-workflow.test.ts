@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDebtAccount, updateDebtAccount } from "@/modules/debt/application/debt-account-workflow";
+import { archiveDebtAccount, createDebtAccount, updateDebtAccount } from "@/modules/debt/application/debt-account-workflow";
 import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
 
 const owner = {
@@ -29,6 +29,16 @@ function repository() {
       defaultRequiredPaymentMinor: input.defaultRequiredPaymentMinor,
       currencyCode: input.currencyCode,
       status: "ACTIVE" as const,
+    })),
+    archiveDebtAccountForOwner: vi.fn(async (ownerUserId: string, debtAccountId: string): Promise<OwnedDebtAccount | null> => ({
+      id: debtAccountId,
+      userId: ownerUserId,
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: "1250075",
+      defaultRequiredPaymentMinor: "15025",
+      currencyCode: "USD",
+      status: "CLOSED" as const,
     })),
   };
 }
@@ -210,6 +220,64 @@ describe("debt account update workflow", () => {
         defaultRequiredPayment: "150.25",
         currencyCode: "USD",
       },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: "DEBT_ACCOUNT_NOT_FOUND", field: "debtAccountId" } });
+  });
+});
+
+describe("debt account archive workflow", () => {
+  it("archives an active debt account using only authenticated owner scope", async () => {
+    const repo = repository();
+
+    const result = await archiveDebtAccount({
+      owner,
+      repository: repo,
+      input: { debtAccountId: "10000000-0000-0000-0000-000000000001" },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        account: {
+          id: "10000000-0000-0000-0000-000000000001",
+          userId: owner.userId,
+          name: "Student loan",
+          creditorName: "Federal Servicer",
+          currentBalanceMinor: "1250075",
+          defaultRequiredPaymentMinor: "15025",
+          currencyCode: "USD",
+          status: "CLOSED",
+        },
+      },
+    });
+    expect(repo.archiveDebtAccountForOwner).toHaveBeenCalledWith(owner.userId, "10000000-0000-0000-0000-000000000001");
+  });
+
+  it.each([
+    ["   ", "DEBT_ACCOUNT_ID_REQUIRED"],
+    ["not-a-uuid", "INVALID_DEBT_ACCOUNT_ID"],
+  ] as const)("returns safe archive validation error %s before persistence", async (debtAccountId, code) => {
+    const repo = repository();
+
+    const result = await archiveDebtAccount({
+      owner,
+      repository: repo,
+      input: { debtAccountId },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code, field: "debtAccountId" } });
+    expect(repo.archiveDebtAccountForOwner).not.toHaveBeenCalled();
+  });
+
+  it("returns a safe not-found error when the account is missing, not-owned, or inactive", async () => {
+    const repo = repository();
+    repo.archiveDebtAccountForOwner.mockResolvedValueOnce(null);
+
+    const result = await archiveDebtAccount({
+      owner,
+      repository: repo,
+      input: { debtAccountId: "10000000-0000-0000-0000-000000000999" },
     });
 
     expect(result).toEqual({ ok: false, error: { code: "DEBT_ACCOUNT_NOT_FOUND", field: "debtAccountId" } });

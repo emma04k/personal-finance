@@ -26,12 +26,14 @@ type DebtAccountValidationError = Readonly<{
 
 export type DebtAccountCreationError = DebtAccountValidationError;
 export type DebtAccountUpdateError = DebtAccountValidationError;
+export type DebtAccountArchiveError = DebtAccountValidationError;
 
 export type CreateDebtAccountResult = Readonly<{
   account: OwnedDebtAccount;
 }>;
 
 export type UpdateDebtAccountResult = CreateDebtAccountResult;
+export type ArchiveDebtAccountResult = CreateDebtAccountResult;
 
 export async function createDebtAccount({
   input,
@@ -72,9 +74,9 @@ export async function updateDebtAccount({
     readonly currencyCode: string;
   };
 }): Promise<Result<UpdateDebtAccountResult, DebtAccountUpdateError>> {
-  const debtAccountId = input.debtAccountId.trim();
-  if (debtAccountId.length === 0) return err({ code: "DEBT_ACCOUNT_ID_REQUIRED", field: "debtAccountId" });
-  if (!isUuid(debtAccountId)) return err({ code: "INVALID_DEBT_ACCOUNT_ID", field: "debtAccountId" });
+  const debtAccountIdResult = validateDebtAccountId(input.debtAccountId);
+  if (!debtAccountIdResult.ok) return debtAccountIdResult;
+  const debtAccountId = debtAccountIdResult.value;
 
   const validatedInput = validateDebtAccountInput(input);
   if (!validatedInput.ok) return validatedInput;
@@ -84,6 +86,31 @@ export async function updateDebtAccount({
   if (!account) return err({ code: "DEBT_ACCOUNT_NOT_FOUND", field: "debtAccountId" });
 
   return ok({ account });
+}
+
+export async function archiveDebtAccount({
+  input,
+  owner,
+  repository,
+}: {
+  readonly owner: OwnershipContext;
+  readonly repository: Pick<OwnedDebtAccountRepository, "archiveDebtAccountForOwner">;
+  readonly input: { readonly debtAccountId: string };
+}): Promise<Result<ArchiveDebtAccountResult, DebtAccountArchiveError>> {
+  const debtAccountIdResult = validateDebtAccountId(input.debtAccountId);
+  if (!debtAccountIdResult.ok) return debtAccountIdResult;
+
+  const account = await repository.archiveDebtAccountForOwner(owner.userId, debtAccountIdResult.value);
+  if (!account) return err({ code: "DEBT_ACCOUNT_NOT_FOUND", field: "debtAccountId" });
+
+  return ok({ account });
+}
+
+function validateDebtAccountId(debtAccountIdInput: string): Result<string, DebtAccountValidationError> {
+  const debtAccountId = debtAccountIdInput.trim();
+  if (debtAccountId.length === 0) return err({ code: "DEBT_ACCOUNT_ID_REQUIRED", field: "debtAccountId" });
+  if (!isUuid(debtAccountId)) return err({ code: "INVALID_DEBT_ACCOUNT_ID", field: "debtAccountId" });
+  return ok(debtAccountId);
 }
 
 function isUuid(value: string) {

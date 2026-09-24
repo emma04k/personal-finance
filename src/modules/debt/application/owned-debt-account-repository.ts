@@ -32,6 +32,10 @@ export type OwnedDebtAccountRepository = {
     debtAccountId: string,
     input: UpdateDebtAccountForOwnerInput,
   ) => Promise<OwnedDebtAccount | null>;
+  readonly archiveDebtAccountForOwner: (
+    ownerUserId: string,
+    debtAccountId: string,
+  ) => Promise<OwnedDebtAccount | null>;
 };
 
 export class InMemoryOwnedDebtAccountRepository implements OwnedDebtAccountRepository {
@@ -85,5 +89,19 @@ export class InMemoryOwnedDebtAccountRepository implements OwnedDebtAccountRepos
     };
     this.#accounts[accountIndex] = updatedAccount;
     return updatedAccount;
+  }
+
+  async archiveDebtAccountForOwner(ownerUserId: string, debtAccountId: string) {
+    const accountIndex = this.#accounts.findIndex(
+      (account) => account.id === debtAccountId && account.userId === ownerUserId && account.status === "ACTIVE",
+    );
+    if (accountIndex === -1) return null;
+
+    const archivedAccount: OwnedDebtAccount = {
+      ...this.#accounts[accountIndex],
+      status: "CLOSED",
+    };
+    this.#accounts[accountIndex] = archivedAccount;
+    return archivedAccount;
   }
 }
