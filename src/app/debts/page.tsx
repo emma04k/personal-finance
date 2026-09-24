@@ -2,10 +2,12 @@ import { AppShell } from "@/components/app-shell";
 import { formatCurrencyMinorUnits } from "@/modules/finance/application/currency-amount";
 import type { DebtBand } from "@/modules/debt/domain/debt-diagnostic";
 import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
+import type { OwnedPeriod } from "@/modules/budget/application/owned-planning-repository";
 import { loadDebtAccountListState } from "./debt-account-list-state";
 import { DebtAccountForm } from "./debt-account-form";
 import { DebtAccountEditForm, type DebtAccountEditFormAccount } from "./debt-account-edit-form";
 import { DebtAccountArchiveForm, type DebtAccountArchiveFormAccount } from "./debt-account-archive-form";
+import { DebtPaymentForm, type DebtPaymentFormAccount, type DebtPaymentFormPeriod } from "./debt-payment-form";
 
 const debtDiagnosticBands = [
   {
@@ -93,6 +95,7 @@ export default async function DebtsPage() {
           : (
             <>
               <DebtAccountCreateSection />
+              <DebtPaymentSection accounts={state.accounts} periods={state.periods} />
               <DebtAccountSection accounts={state.accounts} />
             </>
           )}
@@ -126,6 +129,30 @@ function DebtAccountCreateSection() {
         </p>
       </div>
       <DebtAccountForm />
+    </section>
+  );
+}
+
+function DebtPaymentSection({
+  accounts,
+  periods,
+}: {
+  readonly accounts: readonly OwnedDebtAccount[];
+  readonly periods: readonly OwnedPeriod[];
+}) {
+  const paymentAccounts = accounts.map((account) => toDebtPaymentFormAccount(account));
+  const paymentPeriods = periods.map((period) => toDebtPaymentFormPeriod(period));
+
+  return (
+    <section className="debt-panel" aria-labelledby="debt-payment-create-heading">
+      <div>
+        <p className="eyebrow">Record payment</p>
+        <h2 id="debt-payment-create-heading">Record a debt payment</h2>
+        <p>
+          Store a payment for one active debt account and one monthly period. This records the payment only.
+        </p>
+      </div>
+      <DebtPaymentForm accounts={paymentAccounts} periods={paymentPeriods} />
     </section>
   );
 }
@@ -201,6 +228,22 @@ function toDebtAccountArchiveFormAccount(account: OwnedDebtAccount): DebtAccount
   return {
     id: account.id,
     name: account.name,
+  };
+}
+
+function toDebtPaymentFormAccount(account: OwnedDebtAccount): DebtPaymentFormAccount {
+  return {
+    id: account.id,
+    name: account.name,
+    currencyCode: account.currencyCode,
+  };
+}
+
+function toDebtPaymentFormPeriod(period: OwnedPeriod): DebtPaymentFormPeriod {
+  return {
+    id: period.id,
+    monthStart: period.monthStart,
+    currencyCode: period.currencyCode,
   };
 }
 

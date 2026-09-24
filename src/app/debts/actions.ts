@@ -14,12 +14,21 @@ import {
   type DebtAccountUpdateError,
   updateDebtAccount,
 } from "@/modules/debt/application/debt-account-workflow";
+import {
+  recordDebtPayment,
+  type DebtPaymentRecordError,
+} from "@/modules/debt/application/debt-payment-workflow";
 import { PrismaOwnedDebtAccountRepository } from "@/modules/debt/infrastructure/prisma-owned-debt-account-repository";
+import { PrismaOwnedDebtPaymentRepository } from "@/modules/debt/infrastructure/prisma-owned-debt-payment-repository";
 import { prisma } from "@/lib/prisma";
 import type {
   DebtAccountActionField,
   DebtAccountActionState,
 } from "./debt-account-action-state";
+import type {
+  DebtPaymentActionField,
+  DebtPaymentActionState,
+} from "./debt-payment-action-state";
 
 export async function createDebtAccountAction(
   previousState: DebtAccountActionState,
@@ -149,6 +158,50 @@ export async function archiveDebtAccountAction(
   };
 }
 
+export async function recordDebtPaymentAction(
+  previousState: DebtPaymentActionState,
+  formData: FormData,
+): Promise<DebtPaymentActionState> {
+  void previousState;
+
+  let owner;
+  try {
+    owner = await requireCurrentOwnershipContext();
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError || error instanceof UserNotActiveError) {
+      return {
+        status: "error",
+        message: "Sign in with an active account to record debt payments.",
+        fieldErrors: {},
+      };
+    }
+    throw error;
+  }
+
+  const repository = new PrismaOwnedDebtPaymentRepository(prisma);
+  const result = await recordDebtPayment({
+    owner,
+    repository,
+    input: {
+      debtAccountId: stringField(formData, "debtAccountId"),
+      periodId: stringField(formData, "periodId"),
+      amount: stringField(formData, "amount"),
+      paidOn: stringField(formData, "paidOn"),
+      requiredPaymentOverride: stringField(formData, "requiredPaymentOverride"),
+      notes: optionalStringField(formData, "notes"),
+    },
+  });
+
+  if (!result.ok) return debtPaymentErrorState(result.error);
+
+  revalidatePath("/debts");
+  return {
+    status: "success",
+    message: "Debt payment recorded.",
+    fieldErrors: {},
+  };
+}
+
 function debtAccountErrorState(
   error: DebtAccountCreationError | DebtAccountUpdateError | DebtAccountArchiveError,
   action: "update" | "archive" = "update",
@@ -176,6 +229,48 @@ function debtAccountErrorState(
     case "INVALID_REQUIRED_PAYMENT":
       return debtAccountValidationError("defaultRequiredPayment", "Enter a valid required monthly payment for the selected currency.");
   }
+}
+
+function debtPaymentErrorState(error: DebtPaymentRecordError): DebtPaymentActionState {
+  switch (error.code) {
+    case "DEBT_ACCOUNT_ID_REQUIRED":
+      return debtPaymentValidationError("debtAccountId", "Select an active debt account.");
+    case "INVALID_DEBT_ACCOUNT_ID":
+      return debtPaymentValidationError("debtAccountId", "Select a valid active debt account.");
+    case "DEBT_ACCOUNT_NOT_FOUND":
+      return debtPaymentValidationError("debtAccountId", "Select an active debt account for your account.");
+    case "PERIOD_ID_REQUIRED":
+      return debtPaymentValidationError("periodId", "Select a monthly period.");
+    case "INVALID_PERIOD_ID":
+      return debtPaymentValidationError("periodId", "Select a valid monthly period.");
+    case "PERIOD_NOT_FOUND":
+      return debtPaymentValidationError("periodId", "Select a monthly period for your active account.");
+    case "INVALID_PAYMENT_AMOUNT":
+      return debtPaymentValidationError("amount", "Enter a valid payment amount for the selected debt account currency.");
+    case "PAID_ON_REQUIRED":
+      return debtPaymentValidationError("paidOn", "Enter a paid date.");
+    case "INVALID_PAID_ON":
+      return debtPaymentValidationError("paidOn", "Enter a valid paid date.");
+    case "INVALID_REQUIRED_PAYMENT_OVERRIDE":
+      return debtPaymentValidationError("requiredPaymentOverride", "Enter a valid required-payment override or leave it blank.");
+    case "NOTES_TOO_LONG":
+      return debtPaymentValidationError("notes", "Notes must be 500 characters or less.");
+    case "DEBT_PAYMENT_ALREADY_RECORDED":
+      return debtPaymentValidationError("periodId", "A payment for this account and monthly period is already recorded.");
+    case "CURRENCY_MISMATCH":
+      return debtPaymentValidationError("periodId", "Select a monthly period that uses the same currency as the debt account.");
+  }
+}
+
+function debtPaymentValidationError(
+  field: DebtPaymentActionField,
+  message: string,
+): DebtPaymentActionState {
+  return {
+    status: "error",
+    message,
+    fieldErrors: { [field]: message },
+  };
 }
 
 function debtAccountValidationError(

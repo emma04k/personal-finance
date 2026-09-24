@@ -21,15 +21,30 @@ describe("/debts account list state", () => {
         status: "ACTIVE" as const,
       },
     ];
+    const periods = [
+      {
+        id: "30000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        monthStart: "2026-09-01",
+        currencyCode: "USD",
+        timeZone: "America/New_York",
+        note: null,
+      },
+    ];
     const repository = {
       listActiveDebtAccountsForOwner: vi.fn().mockResolvedValue(accounts),
+    };
+    const planningRepository = {
+      listPeriodsForOwner: vi.fn().mockResolvedValue(periods),
     };
 
     await expect(loadDebtAccountListState({
       getOwner: async () => ({ userId: ownerUserId, role: "OWNER", email: "owner@example.com" }),
       repository,
-    })).resolves.toEqual({ status: "authenticated", accounts });
+      planningRepository,
+    })).resolves.toEqual({ status: "authenticated", accounts, periods });
     expect(repository.listActiveDebtAccountsForOwner).toHaveBeenCalledWith(ownerUserId);
+    expect(planningRepository.listPeriodsForOwner).toHaveBeenCalledWith(ownerUserId);
   });
 
   it("fails closed without querying accounts when authentication is missing", async () => {
