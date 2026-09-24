@@ -5,6 +5,7 @@ import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-acc
 import { loadDebtAccountListState } from "./debt-account-list-state";
 import { DebtAccountForm } from "./debt-account-form";
 import { DebtAccountEditForm, type DebtAccountEditFormAccount } from "./debt-account-edit-form";
+import { DebtAccountArchiveForm, type DebtAccountArchiveFormAccount } from "./debt-account-archive-form";
 
 const debtDiagnosticBands = [
   {
@@ -177,6 +178,7 @@ function DebtAccountSection({ accounts }: { readonly accounts: readonly OwnedDeb
               </div>
             </dl>
             <DebtAccountEditForm account={toDebtAccountEditFormAccount(account)} />
+            <DebtAccountArchiveForm account={toDebtAccountArchiveFormAccount(account)} />
           </article>
         ))}
       </div>
@@ -192,6 +194,13 @@ function toDebtAccountEditFormAccount(account: OwnedDebtAccount): DebtAccountEdi
     currentBalanceMinor: account.currentBalanceMinor,
     defaultRequiredPaymentMinor: account.defaultRequiredPaymentMinor,
     currencyCode: account.currencyCode,
+  };
+}
+
+function toDebtAccountArchiveFormAccount(account: OwnedDebtAccount): DebtAccountArchiveFormAccount {
+  return {
+    id: account.id,
+    name: account.name,
   };
 }
 

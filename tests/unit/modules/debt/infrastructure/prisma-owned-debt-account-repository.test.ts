@@ -186,4 +186,62 @@ describe("Prisma owner-scoped debt account repository", () => {
     })).resolves.toBeNull();
     expect(findFirst).not.toHaveBeenCalled();
   });
+
+  it("archives active debt accounts through an owner-and-account-scoped status transition", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "10000000-0000-0000-0000-000000000001",
+      userId: ownerUserId,
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: BigInt("1250000"),
+      defaultRequiredPaymentMinor: BigInt("15000"),
+      currencyCode: "USD",
+      status: "CLOSED" as const,
+    });
+    const deleteDebtAccount = vi.fn();
+    const debtAccount = { findMany: vi.fn(), create: vi.fn(), updateMany, findFirst, delete: deleteDebtAccount };
+    const repository = new PrismaOwnedDebtAccountRepository({ debtAccount });
+
+    await expect(repository.archiveDebtAccountForOwner(ownerUserId, "10000000-0000-0000-0000-000000000001")).resolves.toEqual({
+      id: "10000000-0000-0000-0000-000000000001",
+      userId: ownerUserId,
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: "1250000",
+      defaultRequiredPaymentMinor: "15000",
+      currencyCode: "USD",
+      status: "CLOSED",
+    });
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "10000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        status: "ACTIVE",
+      },
+      data: {
+        status: "CLOSED",
+        closedOn: expect.any(Date),
+      },
+    });
+    expect(findFirst).toHaveBeenCalledWith({
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        creditorName: true,
+        currentBalanceMinor: true,
+        defaultRequiredPaymentMinor: true,
+        currencyCode: true,
+        status: true,
+      },
+      where: {
+        id: "10000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        status: "CLOSED",
+      },
+    });
+    expect(deleteDebtAccount).not.toHaveBeenCalled();
+  });
 });

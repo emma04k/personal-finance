@@ -10,6 +10,7 @@ const debtWorkflowPath = resolve("src/modules/debt/application/debt-account-work
 const debtsActionsPath = resolve("src/app/debts/actions.ts");
 const debtAccountFormPath = resolve("src/app/debts/debt-account-form.tsx");
 const debtAccountEditFormPath = resolve("src/app/debts/debt-account-edit-form.tsx");
+const debtAccountArchiveFormPath = resolve("src/app/debts/debt-account-archive-form.tsx");
 const debtsRoutePath = resolve("src/app/debts/route.ts");
 const stylesheetPath = resolve("src/app/globals.css");
 
@@ -146,6 +147,33 @@ describe("debt diagnostic foundation page contract", () => {
     expect(workflow).toMatch(/updateDebtAccountForOwner\(owner\.userId, debtAccountId/);
   });
 
+  it("provides an owner-scoped archive form for active accounts without accepting client owner ids", () => {
+    expect(existsSync(debtAccountArchiveFormPath)).toBe(true);
+    const page = source(debtsPagePath);
+    const archiveForm = source(debtAccountArchiveFormPath);
+    const actions = source(debtsActionsPath);
+    const workflow = source(debtWorkflowPath);
+    const prismaRepository = source(prismaDebtRepositoryPath);
+
+    expect(page).toMatch(/<DebtAccountArchiveForm account=\{toDebtAccountArchiveFormAccount\(account\)\} \/>/);
+    expect(page).toMatch(/function toDebtAccountArchiveFormAccount\(account: OwnedDebtAccount\): DebtAccountArchiveFormAccount/);
+    expect(page).toMatch(/id: account\.id,[\s\S]*name: account\.name/);
+    expect(archiveForm).toMatch(/useActionState\(\s*archiveDebtAccountAction,\s*initialDebtAccountActionState,?\s*\)/);
+    expect(archiveForm).toMatch(/export type DebtAccountArchiveFormAccount = Pick<[\s\S]*"id"[\s\S]*"name"[\s\S]*>;/);
+    expect(archiveForm).toMatch(/name="debtAccountId"/);
+    expect(archiveForm).toMatch(/value=\{account\.id\}/);
+    expect(archiveForm).toMatch(/Archive debt account/);
+    expect(archiveForm).not.toMatch(/name="userId"|value=\{account\.userId\}/);
+    expect(actions).toMatch(/archiveDebtAccountAction/);
+    expect(actions).toMatch(/requireCurrentOwnershipContext\(\)/);
+    expect(actions).toMatch(/formData\.get\("debtAccountId"\)/);
+    expect(actions).not.toMatch(/formData\.get\(["']userId["']\)/);
+    expect(workflow).toMatch(/archiveDebtAccountForOwner\(owner\.userId, debtAccountIdResult\.value\)/);
+    expect(prismaRepository).toMatch(/status:\s*"CLOSED"/);
+    expect(prismaRepository).toMatch(/closedOn:\s*new Date\(\)/);
+    expect(prismaRepository).not.toMatch(/\.delete\(/);
+  });
+
   it("keeps unauthenticated users in a safe sign-in-required state", () => {
     const page = source(debtsPagePath);
     const state = source(debtsStatePath);
@@ -191,13 +219,13 @@ describe("debt diagnostic foundation page contract", () => {
     expect(debtBandCardText).toMatch(/overflow-wrap:\s*anywhere\s*;/);
   });
 
-  it("keeps debt account management narrowly scoped without archive, payment, charts, imports, or AI scope", () => {
+  it("keeps debt account management scoped to create, edit, and archive without hard delete, payment, charts, imports, or AI scope", () => {
     const page = source(debtsPagePath);
     const state = source(debtsStatePath);
     const actions = source(debtsActionsPath);
 
     expect(existsSync(debtsRoutePath)).toBe(false);
     expect(page).not.toMatch(/@\/lib\/prisma|@prisma\/client|getServerSession|["']use server["']|formData|get\(["'](?:userId|debtAccountId)["']\)/);
-    expect(`${page}\n${state}\n${actions}`).not.toMatch(/\b(?:delete|archive|recordPayment|recharts|Chart|CSV|XLSX|PDF|workbook|import job|AI|advisor|provider|bank sync|external integration)\b/i);
+    expect(`${page}\n${state}\n${actions}`).not.toMatch(/\b(?:delete|recordPayment|recharts|Chart|CSV|XLSX|PDF|workbook|import job|AI|advisor|provider|bank sync|external integration)\b/i);
   });
 });
