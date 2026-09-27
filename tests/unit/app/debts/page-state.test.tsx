@@ -31,20 +31,37 @@ describe("/debts account list state", () => {
         note: null,
       },
     ];
+    const paymentHistory = [
+      {
+        id: "20000000-0000-0000-0000-000000000001",
+        accountLabel: "Student loan",
+        periodMonthStart: "2026-09-01",
+        amountMinor: "15025",
+        currencyCode: "USD",
+        paidOn: "2026-09-15",
+        requiredPaymentOverrideMinor: null,
+        notes: "September payment",
+      },
+    ];
     const repository = {
       listActiveDebtAccountsForOwner: vi.fn().mockResolvedValue(accounts),
     };
     const planningRepository = {
       listPeriodsForOwner: vi.fn().mockResolvedValue(periods),
     };
+    const paymentRepository = {
+      listDebtPaymentsForOwner: vi.fn().mockResolvedValue(paymentHistory),
+    };
 
     await expect(loadDebtAccountListState({
       getOwner: async () => ({ userId: ownerUserId, role: "OWNER", email: "owner@example.com" }),
       repository,
       planningRepository,
-    })).resolves.toEqual({ status: "authenticated", accounts, periods });
+      paymentRepository,
+    })).resolves.toEqual({ status: "authenticated", accounts, periods, paymentHistory });
     expect(repository.listActiveDebtAccountsForOwner).toHaveBeenCalledWith(ownerUserId);
     expect(planningRepository.listPeriodsForOwner).toHaveBeenCalledWith(ownerUserId);
+    expect(paymentRepository.listDebtPaymentsForOwner).toHaveBeenCalledWith(ownerUserId);
   });
 
   it("fails closed without querying accounts when authentication is missing", async () => {

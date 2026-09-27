@@ -2,6 +2,7 @@ import type {
   CreateDebtPaymentForOwnerInput,
   OwnedDebtPayment,
   OwnedDebtPaymentAccount,
+  OwnedDebtPaymentHistoryEntry,
   OwnedDebtPaymentPeriod,
   OwnedDebtPaymentRepository,
 } from "@/modules/debt/application/owned-debt-payment-repository";
@@ -13,6 +14,17 @@ type PrismaDebtPaymentRecord = Omit<OwnedDebtPayment,
   readonly amountMinor: bigint | number | string;
   readonly paidOn: Date | string | null;
   readonly requiredPaymentOverrideMinor: bigint | number | string | null;
+};
+
+type PrismaDebtPaymentHistoryRecord = {
+  readonly id: string;
+  readonly amountMinor: bigint | number | string;
+  readonly currencyCode: string;
+  readonly paidOn: Date | string | null;
+  readonly requiredPaymentOverrideMinor: bigint | number | string | null;
+  readonly notes: string | null;
+  readonly debtAccount: { readonly name: string };
+  readonly period: { readonly monthStart: Date | string };
 };
 
 type PrismaDelegateMethod = (args: never) => Promise<unknown>;
@@ -27,8 +39,33 @@ type DebtPaymentPrismaClient = {
   };
   readonly debtPayment: {
     readonly create: PrismaDelegateMethod;
+    readonly findMany: PrismaDelegateMethod;
   };
 };
+
+function toOwnedDebtPaymentHistoryEntry(record: PrismaDebtPaymentHistoryRecord): OwnedDebtPaymentHistoryEntry {
+  return {
+    id: record.id,
+    accountLabel: record.debtAccount.name,
+    periodMonthStart: toDateOnlyString(record.period.monthStart),
+    amountMinor: record.amountMinor.toString(),
+    currencyCode: record.currencyCode,
+    paidOn: toDateOnlyString(record.paidOn),
+    requiredPaymentOverrideMinor: record.requiredPaymentOverrideMinor?.toString() ?? null,
+    notes: record.notes,
+  };
+}
+
+const debtPaymentHistorySelect = {
+  id: true,
+  amountMinor: true,
+  currencyCode: true,
+  paidOn: true,
+  requiredPaymentOverrideMinor: true,
+  notes: true,
+  debtAccount: { select: { name: true } },
+  period: { select: { monthStart: true } },
+} as const;
 
 const debtPaymentSelect = {
   id: true,
@@ -57,6 +94,16 @@ const periodSelect = {
 
 export class PrismaOwnedDebtPaymentRepository implements OwnedDebtPaymentRepository {
   constructor(private readonly db: DebtPaymentPrismaClient) {}
+
+  async listDebtPaymentsForOwner(ownerUserId: string) {
+    const records = await findManyDebtPayments(this.db.debtPayment, {
+      select: debtPaymentHistorySelect,
+      where: { userId: ownerUserId },
+      orderBy: [{ paidOn: "desc" }, { id: "asc" }],
+    });
+
+    return records.map(toOwnedDebtPaymentHistoryEntry);
+  }
 
   async findActiveDebtAccountForOwner(ownerUserId: string, debtAccountId: string) {
     return findFirstDebtAccount(this.db.debtAccount, {
@@ -169,4 +216,13 @@ function createDebtPayment(
   return (delegate.create as (
     args: Record<string, unknown>
   ) => Promise<PrismaDebtPaymentRecord>)(args);
+}
+
+function findManyDebtPayments(
+  delegate: DebtPaymentPrismaClient["debtPayment"],
+  args: Record<string, unknown>,
+) {
+  return (delegate.findMany as (
+    args: Record<string, unknown>
+  ) => Promise<readonly PrismaDebtPaymentHistoryRecord[]>)(args);
 }

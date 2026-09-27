@@ -5,6 +5,73 @@ import { PrismaOwnedDebtPaymentRepository } from "@/modules/debt/infrastructure/
 const ownerUserId = "00000000-0000-0000-0000-000000000001";
 
 describe("Prisma owner-scoped debt payment repository", () => {
+  it("lists owner-scoped debt payment history with safe review fields in deterministic order", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        id: "20000000-0000-0000-0000-000000000002",
+        amountMinor: BigInt("17500"),
+        currencyCode: "USD",
+        paidOn: new Date("2026-09-20T00:00:00.000Z"),
+        requiredPaymentOverrideMinor: null,
+        notes: null,
+        debtAccount: { name: "Auto loan" },
+        period: { monthStart: new Date("2026-09-01T00:00:00.000Z") },
+      },
+      {
+        id: "20000000-0000-0000-0000-000000000001",
+        amountMinor: BigInt("15025"),
+        currencyCode: "USD",
+        paidOn: new Date("2026-09-15T00:00:00.000Z"),
+        requiredPaymentOverrideMinor: BigInt("16000"),
+        notes: "September payment",
+        debtAccount: { name: "Student loan" },
+        period: { monthStart: new Date("2026-09-01T00:00:00.000Z") },
+      },
+    ]);
+    const repository = new PrismaOwnedDebtPaymentRepository({
+      debtAccount: { findFirst: vi.fn() },
+      period: { findFirst: vi.fn() },
+      debtPayment: { create: vi.fn(), findMany },
+    });
+
+    await expect(repository.listDebtPaymentsForOwner(ownerUserId)).resolves.toEqual([
+      {
+        id: "20000000-0000-0000-0000-000000000002",
+        accountLabel: "Auto loan",
+        periodMonthStart: "2026-09-01",
+        amountMinor: "17500",
+        currencyCode: "USD",
+        paidOn: "2026-09-20",
+        requiredPaymentOverrideMinor: null,
+        notes: null,
+      },
+      {
+        id: "20000000-0000-0000-0000-000000000001",
+        accountLabel: "Student loan",
+        periodMonthStart: "2026-09-01",
+        amountMinor: "15025",
+        currencyCode: "USD",
+        paidOn: "2026-09-15",
+        requiredPaymentOverrideMinor: "16000",
+        notes: "September payment",
+      },
+    ]);
+    expect(findMany).toHaveBeenCalledWith({
+      select: {
+        id: true,
+        amountMinor: true,
+        currencyCode: true,
+        paidOn: true,
+        requiredPaymentOverrideMinor: true,
+        notes: true,
+        debtAccount: { select: { name: true } },
+        period: { select: { monthStart: true } },
+      },
+      where: { userId: ownerUserId },
+      orderBy: [{ paidOn: "desc" }, { id: "asc" }],
+    });
+  });
+
   it("creates debt payments scoped to owner, period, and active debt account without updating debt balance", async () => {
     const create = vi.fn().mockResolvedValue({
       id: "20000000-0000-0000-0000-000000000001",
@@ -21,7 +88,7 @@ describe("Prisma owner-scoped debt payment repository", () => {
     const repository = new PrismaOwnedDebtPaymentRepository({
       debtAccount: { findFirst: vi.fn(), updateMany: debtAccountUpdateMany },
       period: { findFirst: vi.fn() },
-      debtPayment: { create },
+      debtPayment: { create, findMany: vi.fn() },
     });
 
     await expect(repository.createDebtPaymentForOwner(ownerUserId, {
@@ -79,7 +146,7 @@ describe("Prisma owner-scoped debt payment repository", () => {
     const repository = new PrismaOwnedDebtPaymentRepository({
       debtAccount: { findFirst },
       period: { findFirst: vi.fn() },
-      debtPayment: { create: vi.fn() },
+      debtPayment: { create: vi.fn(), findMany: vi.fn() },
     });
 
     await expect(repository.findActiveDebtAccountForOwner(ownerUserId, "10000000-0000-0000-0000-000000000001")).resolves.toEqual({
@@ -103,7 +170,7 @@ describe("Prisma owner-scoped debt payment repository", () => {
     const repository = new PrismaOwnedDebtPaymentRepository({
       debtAccount: { findFirst: vi.fn() },
       period: { findFirst },
-      debtPayment: { create: vi.fn() },
+      debtPayment: { create: vi.fn(), findMany: vi.fn() },
     });
 
     await expect(repository.findPeriodForOwner(ownerUserId, "30000000-0000-0000-0000-000000000001")).resolves.toEqual({
@@ -125,7 +192,7 @@ describe("Prisma owner-scoped debt payment repository", () => {
     const repository = new PrismaOwnedDebtPaymentRepository({
       debtAccount: { findFirst: vi.fn() },
       period: { findFirst: vi.fn() },
-      debtPayment: { create },
+      debtPayment: { create, findMany: vi.fn() },
     });
 
     await expect(repository.createDebtPaymentForOwner(ownerUserId, {
