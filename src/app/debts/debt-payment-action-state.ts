@@ -1,4 +1,4 @@
-export type DebtPaymentActionField = "debtAccountId" | "periodId" | "amount" | "paidOn" | "requiredPaymentOverride" | "notes";
+export type DebtPaymentActionField = "debtAccountId" | "periodId" | "linkedTransactionId" | "amount" | "paidOn" | "requiredPaymentOverride" | "notes";
 
 export type DebtPaymentActionFieldErrors = Partial<Record<DebtPaymentActionField, string>>;
 

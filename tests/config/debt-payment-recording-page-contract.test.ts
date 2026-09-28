@@ -20,12 +20,14 @@ describe("debt payment recording page contract", () => {
     const form = source(debtPaymentFormPath);
     const actions = source(debtsActionsPath);
 
-    expect(page).toMatch(/<DebtPaymentForm accounts=\{paymentAccounts\} periods=\{paymentPeriods\} \/>/);
+    expect(page).toMatch(/<DebtPaymentForm accounts=\{paymentAccounts\} periods=\{paymentPeriods\} transactionCandidates=\{paymentTransactionCandidates\} \/>/);
     expect(page).toMatch(/toDebtPaymentFormAccount\(account\)/);
     expect(page).toMatch(/toDebtPaymentFormPeriod\(period\)/);
+    expect(page).toMatch(/toDebtPaymentFormTransactionCandidate\(candidate\)/);
     expect(form).toMatch(/useActionState\(\s*recordDebtPaymentAction,\s*initialDebtPaymentActionState,?\s*\)/);
     expect(form).toMatch(/name="debtAccountId"/);
     expect(form).toMatch(/name="periodId"/);
+    expect(form).toMatch(/name="linkedTransactionId"/);
     expect(form).toMatch(/name="amount"/);
     expect(form).toMatch(/name="paidOn"/);
     expect(form).toMatch(/name="requiredPaymentOverride"/);
@@ -42,10 +44,13 @@ describe("debt payment recording page contract", () => {
 
     expect(form).toMatch(/export type DebtPaymentFormAccount = Readonly<\{\s+id: string;\s+name: string;\s+currencyCode: string;\s+\}>/);
     expect(form).toMatch(/export type DebtPaymentFormPeriod = Readonly<\{\s+id: string;\s+monthStart: string;\s+currencyCode: string;\s+\}>/);
+    expect(form).toMatch(/export type DebtPaymentFormTransactionCandidate = Readonly<\{\s+id: string;\s+periodId: string;\s+occurredOn: string;\s+description: string;\s+amountMinor: string;\s+currencyCode: string;\s+categoryName: string \| null;\s+\}>/);
     expect(page).toMatch(/function toDebtPaymentFormAccount\(account: OwnedDebtAccount\): DebtPaymentFormAccount/);
     expect(page).toMatch(/function toDebtPaymentFormPeriod\(period: OwnedPeriod\): DebtPaymentFormPeriod/);
+    expect(page).toMatch(/function toDebtPaymentFormTransactionCandidate\(candidate: OwnedDebtPaymentTransactionCandidate\): DebtPaymentFormTransactionCandidate/);
     expect(page).toMatch(/return \{\s+id: account\.id,\s+name: account\.name,\s+currencyCode: account\.currencyCode,\s+\};/);
     expect(page).toMatch(/return \{\s+id: period\.id,\s+monthStart: period\.monthStart,\s+currencyCode: period\.currencyCode,\s+\};/);
+    expect(page).toMatch(/return \{\s+id: candidate\.id,\s+periodId: candidate\.periodId,\s+occurredOn: candidate\.occurredOn,\s+description: candidate\.description,\s+amountMinor: candidate\.amountMinor,\s+currencyCode: candidate\.currencyCode,\s+categoryName: candidate\.categoryName,\s+\};/);
   });
 
   it("loads monthly periods server-side from the authenticated owner context for payment recording", () => {
@@ -62,6 +67,7 @@ describe("debt payment recording page contract", () => {
 
     expect(state).toMatch(/new PrismaOwnedDebtPaymentRepository\(prisma\)/);
     expect(state).toMatch(/listDebtPaymentsForOwner\(owner\.userId\)/);
+    expect(state).toMatch(/listDebtPaymentTransactionCandidatesForOwner\(owner\.userId\)/);
     expect(page).toMatch(/<DebtPaymentHistorySection payments=\{state\.paymentHistory\} \/>/);
     expect(page).toMatch(/function DebtPaymentHistorySection\(\{ payments \}/);
     expect(page).toMatch(/No debt payments are recorded yet\./);
@@ -71,6 +77,10 @@ describe("debt payment recording page contract", () => {
     expect(page).toMatch(/formatDateLabel\(payment\.paidOn\)/);
     expect(page).toMatch(/payment\.requiredPaymentOverrideMinor/);
     expect(page).toMatch(/payment\.notes/);
+    expect(page).toMatch(/payment\.linkedTransaction/);
+    expect(page).toMatch(/Linked transaction/);
+    expect(page).toMatch(/payment\.linkedTransaction\.description/);
+    expect(page).toMatch(/payment\.linkedTransaction\.occurredOn/);
     expect(page).not.toMatch(/payment\.userId|userId: payment|debtAccountId: payment|periodId: payment/);
   });
 

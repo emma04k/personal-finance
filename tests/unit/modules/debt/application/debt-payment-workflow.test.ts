@@ -2,15 +2,32 @@ import { describe, expect, it, vi } from "vitest";
 import { recordDebtPayment } from "@/modules/debt/application/debt-payment-workflow";
 import type {
   OwnedDebtPaymentAccount,
+  OwnedDebtPaymentLinkedTransaction,
   OwnedDebtPaymentPeriod,
 } from "@/modules/debt/application/owned-debt-payment-repository";
-import { DuplicateDebtPaymentError } from "@/modules/debt/application/owned-debt-payment-repository";
+import {
+  DuplicateDebtPaymentError,
+  DuplicateDebtPaymentTransactionLinkError,
+} from "@/modules/debt/application/owned-debt-payment-repository";
 
 const owner = {
   userId: "00000000-0000-0000-0000-000000000001",
   role: "OWNER" as const,
   email: "owner@example.com",
 };
+
+function linkedTransaction(overrides: Partial<OwnedDebtPaymentLinkedTransaction> = {}): OwnedDebtPaymentLinkedTransaction {
+  return {
+    id: overrides.id ?? "50000000-0000-0000-0000-000000000001",
+    userId: overrides.userId ?? owner.userId,
+    periodId: overrides.periodId ?? "30000000-0000-0000-0000-000000000001",
+    direction: overrides.direction ?? "OUTFLOW",
+    amountMinor: overrides.amountMinor ?? "15025",
+    currencyCode: overrides.currencyCode ?? "USD",
+    categoryType: overrides.categoryType ?? "DEBT_PAYMENT",
+    linkedDebtPaymentId: overrides.linkedDebtPaymentId ?? null,
+  };
+}
 
 function repository() {
   return {
@@ -25,11 +42,13 @@ function repository() {
       userId: ownerUserId,
       currencyCode: "USD",
     })),
+    findDebtPaymentLinkTransactionForOwner: vi.fn(async (_ownerUserId: string, transactionId: string): Promise<OwnedDebtPaymentLinkedTransaction | null> => linkedTransaction({ id: transactionId })),
     createDebtPaymentForOwner: vi.fn(async (ownerUserId: string, input) => ({
       id: "20000000-0000-0000-0000-000000000001",
       userId: ownerUserId,
       periodId: input.periodId,
       debtAccountId: input.debtAccountId,
+      linkedTransactionId: input.linkedTransactionId,
       amountMinor: input.amountMinor,
       currencyCode: input.currencyCode,
       paidOn: input.paidOn,
@@ -64,6 +83,7 @@ describe("debt payment recording workflow", () => {
           userId: owner.userId,
           periodId: "30000000-0000-0000-0000-000000000001",
           debtAccountId: "10000000-0000-0000-0000-000000000001",
+          linkedTransactionId: null,
           amountMinor: "9007199254740993",
           currencyCode: "USD",
           paidOn: "2026-09-15",
@@ -77,12 +97,79 @@ describe("debt payment recording workflow", () => {
     expect(repo.createDebtPaymentForOwner).toHaveBeenCalledWith(owner.userId, {
       debtAccountId: "10000000-0000-0000-0000-000000000001",
       periodId: "30000000-0000-0000-0000-000000000001",
+      linkedTransactionId: null,
       amountMinor: "9007199254740993",
       currencyCode: "USD",
       paidOn: "2026-09-15",
       requiredPaymentOverrideMinor: "50",
       notes: "First tracked payment",
     });
+  });
+
+  it("records a debt payment with an optional validated owner-scoped matching transaction link", async () => {
+    const repo = repository();
+
+    const result = await recordDebtPayment({
+      owner,
+      repository: repo,
+      input: {
+        debtAccountId: "10000000-0000-0000-0000-000000000001",
+        periodId: "30000000-0000-0000-0000-000000000001",
+        linkedTransactionId: "50000000-0000-0000-0000-000000000001",
+        amount: "150.25",
+        paidOn: "2026-09-15",
+        requiredPaymentOverride: "",
+        notes: null,
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        payment: {
+          linkedTransactionId: "50000000-0000-0000-0000-000000000001",
+        },
+      },
+    });
+    expect(repo.findDebtPaymentLinkTransactionForOwner).toHaveBeenCalledWith(owner.userId, "50000000-0000-0000-0000-000000000001");
+    expect(repo.createDebtPaymentForOwner).toHaveBeenCalledWith(owner.userId, expect.objectContaining({
+      linkedTransactionId: "50000000-0000-0000-0000-000000000001",
+      amountMinor: "15025",
+      currencyCode: "USD",
+    }));
+  });
+
+  it.each([
+    ["not-a-uuid", null, "INVALID_TRANSACTION_ID"],
+    ["50000000-0000-0000-0000-000000000099", null, "TRANSACTION_NOT_FOUND"],
+    ["50000000-0000-0000-0000-000000000001", linkedTransaction({ periodId: "30000000-0000-0000-0000-000000000099" }), "TRANSACTION_PERIOD_MISMATCH"],
+    ["50000000-0000-0000-0000-000000000001", linkedTransaction({ direction: "INFLOW" }), "TRANSACTION_DIRECTION_INVALID"],
+    ["50000000-0000-0000-0000-000000000001", linkedTransaction({ currencyCode: "EUR" }), "TRANSACTION_CURRENCY_MISMATCH"],
+    ["50000000-0000-0000-0000-000000000001", linkedTransaction({ amountMinor: "15026" }), "TRANSACTION_AMOUNT_MISMATCH"],
+    ["50000000-0000-0000-0000-000000000001", linkedTransaction({ categoryType: "EXPENSE" }), "TRANSACTION_CATEGORY_NOT_COMPATIBLE"],
+    ["50000000-0000-0000-0000-000000000001", linkedTransaction({ linkedDebtPaymentId: "20000000-0000-0000-0000-000000000009" }), "TRANSACTION_ALREADY_LINKED"],
+  ] as const)("rejects invalid linked transaction %s with %s", async (linkedTransactionId, transactionRecord, code) => {
+    const repo = repository();
+    if (linkedTransactionId !== "not-a-uuid") {
+      repo.findDebtPaymentLinkTransactionForOwner.mockResolvedValueOnce(transactionRecord);
+    }
+
+    const result = await recordDebtPayment({
+      owner,
+      repository: repo,
+      input: {
+        debtAccountId: "10000000-0000-0000-0000-000000000001",
+        periodId: "30000000-0000-0000-0000-000000000001",
+        linkedTransactionId,
+        amount: "150.25",
+        paidOn: "2026-09-15",
+        requiredPaymentOverride: "",
+        notes: null,
+      },
+    });
+
+    expect(result).toEqual({ ok: false, error: { code, field: "linkedTransactionId" } });
+    expect(repo.createDebtPaymentForOwner).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -176,6 +263,30 @@ describe("debt payment recording workflow", () => {
     expect(result).toEqual({
       ok: false,
       error: { code: "DEBT_PAYMENT_ALREADY_RECORDED", field: "periodId" },
+    });
+  });
+
+  it("maps a concurrent duplicate linked transaction persistence failure to safe field feedback", async () => {
+    const repo = repository();
+    repo.createDebtPaymentForOwner.mockRejectedValueOnce(new DuplicateDebtPaymentTransactionLinkError());
+
+    const result = await recordDebtPayment({
+      owner,
+      repository: repo,
+      input: {
+        debtAccountId: "10000000-0000-0000-0000-000000000001",
+        periodId: "30000000-0000-0000-0000-000000000001",
+        linkedTransactionId: "50000000-0000-0000-0000-000000000001",
+        amount: "150.25",
+        paidOn: "2026-09-15",
+        requiredPaymentOverride: "",
+        notes: null,
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "TRANSACTION_ALREADY_LINKED", field: "linkedTransactionId" },
     });
   });
 

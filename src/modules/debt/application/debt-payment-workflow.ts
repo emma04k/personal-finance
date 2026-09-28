@@ -2,9 +2,13 @@ import type { OwnershipContext } from "@/modules/auth/application/ownership-cont
 import type {
   CreateDebtPaymentForOwnerInput,
   OwnedDebtPayment,
+  OwnedDebtPaymentLinkedTransaction,
   OwnedDebtPaymentRepository,
 } from "@/modules/debt/application/owned-debt-payment-repository";
-import { DuplicateDebtPaymentError } from "@/modules/debt/application/owned-debt-payment-repository";
+import {
+  DuplicateDebtPaymentError,
+  DuplicateDebtPaymentTransactionLinkError,
+} from "@/modules/debt/application/owned-debt-payment-repository";
 import { parseCurrencyAmountToMinorUnits } from "@/modules/finance/application/currency-amount";
 import { err, ok, type Result } from "@/modules/finance/domain/result";
 
@@ -22,8 +26,16 @@ type DebtPaymentValidationError = Readonly<{
     | "INVALID_REQUIRED_PAYMENT_OVERRIDE"
     | "NOTES_TOO_LONG"
     | "DEBT_PAYMENT_ALREADY_RECORDED"
-    | "CURRENCY_MISMATCH";
-  field: "debtAccountId" | "periodId" | "amount" | "paidOn" | "requiredPaymentOverride" | "notes";
+    | "CURRENCY_MISMATCH"
+    | "INVALID_TRANSACTION_ID"
+    | "TRANSACTION_NOT_FOUND"
+    | "TRANSACTION_PERIOD_MISMATCH"
+    | "TRANSACTION_DIRECTION_INVALID"
+    | "TRANSACTION_CURRENCY_MISMATCH"
+    | "TRANSACTION_AMOUNT_MISMATCH"
+    | "TRANSACTION_CATEGORY_NOT_COMPATIBLE"
+    | "TRANSACTION_ALREADY_LINKED";
+  field: "debtAccountId" | "periodId" | "amount" | "paidOn" | "requiredPaymentOverride" | "notes" | "linkedTransactionId";
 }>;
 
 export type DebtPaymentRecordError = DebtPaymentValidationError;
@@ -38,11 +50,12 @@ export async function recordDebtPayment({
   readonly owner: OwnershipContext;
   readonly repository: Pick<
     OwnedDebtPaymentRepository,
-    "findActiveDebtAccountForOwner" | "findPeriodForOwner" | "createDebtPaymentForOwner"
+    "findActiveDebtAccountForOwner" | "findPeriodForOwner" | "findDebtPaymentLinkTransactionForOwner" | "createDebtPaymentForOwner"
   >;
   readonly input: {
     readonly debtAccountId: string;
     readonly periodId: string;
+    readonly linkedTransactionId?: string | null;
     readonly amount: unknown;
     readonly paidOn: string;
     readonly requiredPaymentOverride: unknown;
@@ -65,6 +78,9 @@ export async function recordDebtPayment({
   );
   if (!periodIdResult.ok) return periodIdResult;
 
+  const linkedTransactionIdResult = validateOptionalTransactionId(input.linkedTransactionId ?? null);
+  if (!linkedTransactionIdResult.ok) return linkedTransactionIdResult;
+
   const account = await repository.findActiveDebtAccountForOwner(owner.userId, debtAccountIdResult.value);
   if (!account) return err({ code: "DEBT_ACCOUNT_NOT_FOUND", field: "debtAccountId" });
 
@@ -77,6 +93,18 @@ export async function recordDebtPayment({
 
   const amountMinor = parseCurrencyAmountToMinorUnits(input.amount, account.currencyCode);
   if (amountMinor === null) return err({ code: "INVALID_PAYMENT_AMOUNT", field: "amount" });
+
+  const linkedTransactionId = linkedTransactionIdResult.value;
+  if (linkedTransactionId) {
+    const transaction = await repository.findDebtPaymentLinkTransactionForOwner(owner.userId, linkedTransactionId);
+    const validation = validateLinkedTransaction({
+      transaction,
+      periodId: period.id,
+      amountMinor,
+      currencyCode: account.currencyCode,
+    });
+    if (!validation.ok) return validation;
+  }
 
   const paidOn = input.paidOn.trim();
   if (paidOn.length === 0) return err({ code: "PAID_ON_REQUIRED", field: "paidOn" });
@@ -97,6 +125,7 @@ export async function recordDebtPayment({
   const createInput: CreateDebtPaymentForOwnerInput = {
     debtAccountId: account.id,
     periodId: period.id,
+    linkedTransactionId,
     amountMinor,
     currencyCode: account.currencyCode,
     paidOn,
@@ -110,9 +139,45 @@ export async function recordDebtPayment({
     if (error instanceof DuplicateDebtPaymentError) {
       return err({ code: "DEBT_PAYMENT_ALREADY_RECORDED", field: "periodId" });
     }
+    if (error instanceof DuplicateDebtPaymentTransactionLinkError) {
+      return err({ code: "TRANSACTION_ALREADY_LINKED", field: "linkedTransactionId" });
+    }
     throw error;
   }
   return ok({ payment });
+}
+
+function validateLinkedTransaction({
+  transaction,
+  periodId,
+  amountMinor,
+  currencyCode,
+}: {
+  readonly transaction: OwnedDebtPaymentLinkedTransaction | null;
+  readonly periodId: string;
+  readonly amountMinor: string;
+  readonly currencyCode: string;
+}): Result<true, DebtPaymentRecordError> {
+  if (!transaction) return err({ code: "TRANSACTION_NOT_FOUND", field: "linkedTransactionId" });
+  if (transaction.periodId !== periodId) {
+    return err({ code: "TRANSACTION_PERIOD_MISMATCH", field: "linkedTransactionId" });
+  }
+  if (transaction.direction !== "OUTFLOW") {
+    return err({ code: "TRANSACTION_DIRECTION_INVALID", field: "linkedTransactionId" });
+  }
+  if (transaction.currencyCode !== currencyCode) {
+    return err({ code: "TRANSACTION_CURRENCY_MISMATCH", field: "linkedTransactionId" });
+  }
+  if (transaction.amountMinor !== amountMinor) {
+    return err({ code: "TRANSACTION_AMOUNT_MISMATCH", field: "linkedTransactionId" });
+  }
+  if (transaction.categoryType !== null && transaction.categoryType !== "DEBT_PAYMENT") {
+    return err({ code: "TRANSACTION_CATEGORY_NOT_COMPATIBLE", field: "linkedTransactionId" });
+  }
+  if (transaction.linkedDebtPaymentId !== null) {
+    return err({ code: "TRANSACTION_ALREADY_LINKED", field: "linkedTransactionId" });
+  }
+  return ok(true);
 }
 
 function validateUuidField(
@@ -123,10 +188,19 @@ function validateUuidField(
 ): Result<string, DebtPaymentRecordError> {
   const value = input.trim();
   if (value.length === 0) return err({ code: requiredCode, field });
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-    return err({ code: invalidCode, field });
-  }
+  if (!isUuid(value)) return err({ code: invalidCode, field });
   return ok(value);
+}
+
+function validateOptionalTransactionId(input: string | null): Result<string | null, DebtPaymentRecordError> {
+  const value = input?.trim() ?? "";
+  if (value.length === 0) return ok(null);
+  if (!isUuid(value)) return err({ code: "INVALID_TRANSACTION_ID", field: "linkedTransactionId" });
+  return ok(value);
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 function parseOptionalCurrencyAmount(input: unknown, currencyCode: string) {

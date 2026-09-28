@@ -3,6 +3,7 @@ export type OwnedDebtPayment = {
   readonly userId: string;
   readonly periodId: string;
   readonly debtAccountId: string;
+  readonly linkedTransactionId: string | null;
   readonly amountMinor: string;
   readonly currencyCode: string;
   readonly paidOn: string;
@@ -23,6 +24,27 @@ export type OwnedDebtPaymentPeriod = {
   readonly currencyCode: string;
 };
 
+export type OwnedDebtPaymentLinkedTransaction = {
+  readonly id: string;
+  readonly userId: string;
+  readonly periodId: string;
+  readonly direction: "INFLOW" | "OUTFLOW";
+  readonly amountMinor: string;
+  readonly currencyCode: string;
+  readonly categoryType: "INCOME" | "EXPENSE" | "SAVINGS" | "DEBT_PAYMENT" | null;
+  readonly linkedDebtPaymentId: string | null;
+};
+
+export type OwnedDebtPaymentTransactionCandidate = {
+  readonly id: string;
+  readonly periodId: string;
+  readonly occurredOn: string;
+  readonly description: string;
+  readonly amountMinor: string;
+  readonly currencyCode: string;
+  readonly categoryName: string | null;
+};
+
 export type OwnedDebtPaymentHistoryEntry = {
   readonly id: string;
   readonly accountLabel: string;
@@ -32,11 +54,19 @@ export type OwnedDebtPaymentHistoryEntry = {
   readonly paidOn: string;
   readonly requiredPaymentOverrideMinor: string | null;
   readonly notes: string | null;
+  readonly linkedTransaction: null | {
+    readonly id: string;
+    readonly occurredOn: string;
+    readonly description: string;
+    readonly amountMinor: string;
+    readonly currencyCode: string;
+  };
 };
 
 export type CreateDebtPaymentForOwnerInput = {
   readonly periodId: string;
   readonly debtAccountId: string;
+  readonly linkedTransactionId: string | null;
   readonly amountMinor: string;
   readonly currencyCode: string;
   readonly paidOn: string;
@@ -51,10 +81,20 @@ export class DuplicateDebtPaymentError extends Error {
   }
 }
 
+export class DuplicateDebtPaymentTransactionLinkError extends Error {
+  constructor() {
+    super("The selected transaction is already linked to another debt payment.");
+    this.name = "DuplicateDebtPaymentTransactionLinkError";
+  }
+}
+
 export type OwnedDebtPaymentRepository = {
   readonly listDebtPaymentsForOwner: (
     ownerUserId: string,
   ) => Promise<readonly OwnedDebtPaymentHistoryEntry[]>;
+  readonly listDebtPaymentTransactionCandidatesForOwner: (
+    ownerUserId: string,
+  ) => Promise<readonly OwnedDebtPaymentTransactionCandidate[]>;
   readonly findActiveDebtAccountForOwner: (
     ownerUserId: string,
     debtAccountId: string,
@@ -63,6 +103,10 @@ export type OwnedDebtPaymentRepository = {
     ownerUserId: string,
     periodId: string,
   ) => Promise<OwnedDebtPaymentPeriod | null>;
+  readonly findDebtPaymentLinkTransactionForOwner: (
+    ownerUserId: string,
+    transactionId: string,
+  ) => Promise<OwnedDebtPaymentLinkedTransaction | null>;
   readonly createDebtPaymentForOwner: (
     ownerUserId: string,
     input: CreateDebtPaymentForOwnerInput,

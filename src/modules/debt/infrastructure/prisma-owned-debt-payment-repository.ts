@@ -3,14 +3,20 @@ import type {
   OwnedDebtPayment,
   OwnedDebtPaymentAccount,
   OwnedDebtPaymentHistoryEntry,
+  OwnedDebtPaymentLinkedTransaction,
   OwnedDebtPaymentPeriod,
   OwnedDebtPaymentRepository,
+  OwnedDebtPaymentTransactionCandidate,
 } from "@/modules/debt/application/owned-debt-payment-repository";
-import { DuplicateDebtPaymentError } from "@/modules/debt/application/owned-debt-payment-repository";
+import {
+  DuplicateDebtPaymentError,
+  DuplicateDebtPaymentTransactionLinkError,
+} from "@/modules/debt/application/owned-debt-payment-repository";
 
 type PrismaDebtPaymentRecord = Omit<OwnedDebtPayment,
-  "amountMinor" | "paidOn" | "requiredPaymentOverrideMinor"
+  "amountMinor" | "paidOn" | "requiredPaymentOverrideMinor" | "linkedTransactionId"
 > & {
+  readonly transactionId: string | null;
   readonly amountMinor: bigint | number | string;
   readonly paidOn: Date | string | null;
   readonly requiredPaymentOverrideMinor: bigint | number | string | null;
@@ -25,6 +31,34 @@ type PrismaDebtPaymentHistoryRecord = {
   readonly notes: string | null;
   readonly debtAccount: { readonly name: string };
   readonly period: { readonly monthStart: Date | string };
+  readonly linkedTransaction: null | {
+    readonly id: string;
+    readonly occurredOn: Date | string;
+    readonly description: string;
+    readonly amountMinor: bigint | number | string;
+    readonly currencyCode: string;
+  };
+};
+
+type PrismaDebtPaymentTransactionCandidateRecord = {
+  readonly id: string;
+  readonly periodId: string;
+  readonly occurredOn: Date | string;
+  readonly description: string;
+  readonly amountMinor: bigint | number | string;
+  readonly currencyCode: string;
+  readonly category: null | { readonly name: string; readonly type: "INCOME" | "EXPENSE" | "SAVINGS" | "DEBT_PAYMENT" };
+};
+
+type PrismaDebtPaymentLinkedTransactionRecord = {
+  readonly id: string;
+  readonly userId: string;
+  readonly periodId: string;
+  readonly direction: "INFLOW" | "OUTFLOW";
+  readonly amountMinor: bigint | number | string;
+  readonly currencyCode: string;
+  readonly category: null | { readonly type: "INCOME" | "EXPENSE" | "SAVINGS" | "DEBT_PAYMENT" };
+  readonly linkedDebtPayment: null | { readonly id: string };
 };
 
 type PrismaDelegateMethod = (args: never) => Promise<unknown>;
@@ -41,6 +75,10 @@ type DebtPaymentPrismaClient = {
     readonly create: PrismaDelegateMethod;
     readonly findMany: PrismaDelegateMethod;
   };
+  readonly transaction?: {
+    readonly findMany: PrismaDelegateMethod;
+    readonly findFirst: PrismaDelegateMethod;
+  };
 };
 
 function toOwnedDebtPaymentHistoryEntry(record: PrismaDebtPaymentHistoryRecord): OwnedDebtPaymentHistoryEntry {
@@ -53,6 +91,44 @@ function toOwnedDebtPaymentHistoryEntry(record: PrismaDebtPaymentHistoryRecord):
     paidOn: toDateOnlyString(record.paidOn),
     requiredPaymentOverrideMinor: record.requiredPaymentOverrideMinor?.toString() ?? null,
     notes: record.notes,
+    linkedTransaction: record.linkedTransaction
+      ? {
+          id: record.linkedTransaction.id,
+          occurredOn: toDateOnlyString(record.linkedTransaction.occurredOn),
+          description: record.linkedTransaction.description,
+          amountMinor: record.linkedTransaction.amountMinor.toString(),
+          currencyCode: record.linkedTransaction.currencyCode,
+        }
+      : null,
+  };
+}
+
+function toOwnedTransactionCandidate(
+  record: PrismaDebtPaymentTransactionCandidateRecord,
+): OwnedDebtPaymentTransactionCandidate {
+  return {
+    id: record.id,
+    periodId: record.periodId,
+    occurredOn: toDateOnlyString(record.occurredOn),
+    description: record.description,
+    amountMinor: record.amountMinor.toString(),
+    currencyCode: record.currencyCode,
+    categoryName: record.category?.name ?? null,
+  };
+}
+
+function toOwnedLinkedTransaction(
+  record: PrismaDebtPaymentLinkedTransactionRecord,
+): OwnedDebtPaymentLinkedTransaction {
+  return {
+    id: record.id,
+    userId: record.userId,
+    periodId: record.periodId,
+    direction: record.direction,
+    amountMinor: record.amountMinor.toString(),
+    currencyCode: record.currencyCode,
+    categoryType: record.category?.type ?? null,
+    linkedDebtPaymentId: record.linkedDebtPayment?.id ?? null,
   };
 }
 
@@ -65,6 +141,7 @@ const debtPaymentHistorySelect = {
   notes: true,
   debtAccount: { select: { name: true } },
   period: { select: { monthStart: true } },
+  linkedTransaction: { select: { id: true, occurredOn: true, description: true, amountMinor: true, currencyCode: true } },
 } as const;
 
 const debtPaymentSelect = {
@@ -72,6 +149,7 @@ const debtPaymentSelect = {
   userId: true,
   periodId: true,
   debtAccountId: true,
+  transactionId: true,
   amountMinor: true,
   currencyCode: true,
   paidOn: true,
@@ -92,6 +170,27 @@ const periodSelect = {
   currencyCode: true,
 } as const;
 
+const transactionCandidateSelect = {
+  id: true,
+  periodId: true,
+  occurredOn: true,
+  description: true,
+  amountMinor: true,
+  currencyCode: true,
+  category: { select: { name: true, type: true } },
+} as const;
+
+const linkedTransactionSelect = {
+  id: true,
+  userId: true,
+  periodId: true,
+  direction: true,
+  amountMinor: true,
+  currencyCode: true,
+  category: { select: { type: true } },
+  linkedDebtPayment: { select: { id: true } },
+} as const;
+
 export class PrismaOwnedDebtPaymentRepository implements OwnedDebtPaymentRepository {
   constructor(private readonly db: DebtPaymentPrismaClient) {}
 
@@ -103,6 +202,25 @@ export class PrismaOwnedDebtPaymentRepository implements OwnedDebtPaymentReposit
     });
 
     return records.map(toOwnedDebtPaymentHistoryEntry);
+  }
+
+  async listDebtPaymentTransactionCandidatesForOwner(ownerUserId: string) {
+    const transaction = transactionDelegate(this.db);
+    const records = await findManyTransactions(transaction, {
+      select: transactionCandidateSelect,
+      where: {
+        userId: ownerUserId,
+        direction: "OUTFLOW",
+        linkedDebtPayment: null,
+        OR: [
+          { category: { is: null } },
+          { category: { is: { type: "DEBT_PAYMENT" } } },
+        ],
+      },
+      orderBy: [{ occurredOn: "desc" }, { id: "asc" }],
+    });
+
+    return records.map(toOwnedTransactionCandidate);
   }
 
   async findActiveDebtAccountForOwner(ownerUserId: string, debtAccountId: string) {
@@ -119,6 +237,16 @@ export class PrismaOwnedDebtPaymentRepository implements OwnedDebtPaymentReposit
     });
   }
 
+  async findDebtPaymentLinkTransactionForOwner(ownerUserId: string, transactionId: string) {
+    const transaction = transactionDelegate(this.db);
+    const record = await findFirstTransaction(transaction, {
+      select: linkedTransactionSelect,
+      where: { id: transactionId, userId: ownerUserId },
+    });
+
+    return record ? toOwnedLinkedTransaction(record) : null;
+  }
+
   async createDebtPaymentForOwner(
     ownerUserId: string,
     input: CreateDebtPaymentForOwnerInput,
@@ -130,6 +258,7 @@ export class PrismaOwnedDebtPaymentRepository implements OwnedDebtPaymentReposit
           userId: ownerUserId,
           periodId: input.periodId,
           debtAccountId: input.debtAccountId,
+          transactionId: input.linkedTransactionId,
           amountMinor: BigInt(input.amountMinor),
           currencyCode: input.currencyCode,
           paidOn: toDateOnlyDate(input.paidOn),
@@ -142,6 +271,7 @@ export class PrismaOwnedDebtPaymentRepository implements OwnedDebtPaymentReposit
       });
     } catch (error) {
       if (isPrismaPeriodDebtAccountUniqueConstraintError(error)) throw new DuplicateDebtPaymentError();
+      if (isPrismaTransactionUniqueConstraintError(error)) throw new DuplicateDebtPaymentTransactionLinkError();
       throw error;
     }
 
@@ -149,22 +279,41 @@ export class PrismaOwnedDebtPaymentRepository implements OwnedDebtPaymentReposit
   }
 }
 
+function transactionDelegate(db: DebtPaymentPrismaClient) {
+  if (!db.transaction) throw new Error("Prisma transaction delegate is required for debt payment transaction links.");
+  return db.transaction;
+}
+
 function isPrismaPeriodDebtAccountUniqueConstraintError(error: unknown) {
   if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "P2002") {
     return false;
   }
 
-  const target = "meta" in error
+  const target = prismaUniqueTarget(error);
+  return Array.isArray(target)
+    && target.length === 2
+    && target.includes("periodId")
+    && target.includes("debtAccountId");
+}
+
+function isPrismaTransactionUniqueConstraintError(error: unknown) {
+  if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "P2002") {
+    return false;
+  }
+
+  const target = prismaUniqueTarget(error);
+  return Array.isArray(target)
+    && target.length === 1
+    && target.includes("transactionId");
+}
+
+function prismaUniqueTarget(error: object) {
+  return "meta" in error
     && typeof error.meta === "object"
     && error.meta !== null
     && "target" in error.meta
     ? error.meta.target
     : null;
-
-  return Array.isArray(target)
-    && target.length === 2
-    && target.includes("periodId")
-    && target.includes("debtAccountId");
 }
 
 function toOwnedDebtPayment(record: PrismaDebtPaymentRecord): OwnedDebtPayment {
@@ -173,6 +322,7 @@ function toOwnedDebtPayment(record: PrismaDebtPaymentRecord): OwnedDebtPayment {
     userId: record.userId,
     periodId: record.periodId,
     debtAccountId: record.debtAccountId,
+    linkedTransactionId: record.transactionId,
     amountMinor: record.amountMinor.toString(),
     currencyCode: record.currencyCode,
     paidOn: toDateOnlyString(record.paidOn),
@@ -225,4 +375,22 @@ function findManyDebtPayments(
   return (delegate.findMany as (
     args: Record<string, unknown>
   ) => Promise<readonly PrismaDebtPaymentHistoryRecord[]>)(args);
+}
+
+function findManyTransactions(
+  delegate: NonNullable<DebtPaymentPrismaClient["transaction"]>,
+  args: Record<string, unknown>,
+) {
+  return (delegate.findMany as (
+    args: Record<string, unknown>
+  ) => Promise<readonly PrismaDebtPaymentTransactionCandidateRecord[]>)(args);
+}
+
+function findFirstTransaction(
+  delegate: NonNullable<DebtPaymentPrismaClient["transaction"]>,
+  args: Record<string, unknown>,
+) {
+  return (delegate.findFirst as (
+    args: Record<string, unknown>
+  ) => Promise<PrismaDebtPaymentLinkedTransactionRecord | null>)(args);
 }

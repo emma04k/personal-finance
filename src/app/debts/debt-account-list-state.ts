@@ -17,6 +17,7 @@ import type {
 import type {
   OwnedDebtPaymentHistoryEntry,
   OwnedDebtPaymentRepository,
+  OwnedDebtPaymentTransactionCandidate,
 } from "@/modules/debt/application/owned-debt-payment-repository";
 import { buildMonthlyBudgetSummary } from "@/modules/budget/application/monthly-budget-summary-workflow";
 import { diagnoseDebt, type DebtBand } from "@/modules/debt/domain/debt-diagnostic";
@@ -32,6 +33,7 @@ export type DebtAccountListState =
       accounts: readonly OwnedDebtAccount[];
       periods: readonly OwnedPeriod[];
       paymentHistory: readonly OwnedDebtPaymentHistoryEntry[];
+      transactionCandidates: readonly OwnedDebtPaymentTransactionCandidate[];
       diagnostic: DebtDiagnosticSummaryState;
     }>
   | Readonly<{ status: "authentication-required" }>;
@@ -82,7 +84,7 @@ type DebtAccountListStateDependencies = Readonly<{
   planningRepository?: Pick<OwnedPlanningRepository,
     "listPeriodsForOwner" | "listPlannedBudgetLinesForOwnerPeriod" | "listTransactionsForOwnerPeriod"
   >;
-  paymentRepository?: Pick<OwnedDebtPaymentRepository, "listDebtPaymentsForOwner">;
+  paymentRepository?: Pick<OwnedDebtPaymentRepository, "listDebtPaymentsForOwner" | "listDebtPaymentTransactionCandidatesForOwner">;
 }>;
 
 const canonicalMinorUnits = /^(0|[1-9][0-9]*)$/;
@@ -97,10 +99,11 @@ export async function loadDebtAccountListState(
 
   try {
     const owner = await getOwner();
-    const [accounts, periods, paymentHistory] = await Promise.all([
+    const [accounts, periods, paymentHistory, transactionCandidates] = await Promise.all([
       repository.listActiveDebtAccountsForOwner(owner.userId),
       planningRepository.listPeriodsForOwner(owner.userId),
       paymentRepository.listDebtPaymentsForOwner(owner.userId),
+      paymentRepository.listDebtPaymentTransactionCandidatesForOwner(owner.userId),
     ]);
     const diagnostic = await buildDebtDiagnosticSummary({
       ownerUserId: owner.userId,
@@ -108,7 +111,7 @@ export async function loadDebtAccountListState(
       periods,
       planningRepository,
     });
-    return { status: "authenticated", accounts, periods, paymentHistory, diagnostic };
+    return { status: "authenticated", accounts, periods, paymentHistory, transactionCandidates, diagnostic };
   } catch (error) {
     if (
       error instanceof AuthenticationRequiredError ||

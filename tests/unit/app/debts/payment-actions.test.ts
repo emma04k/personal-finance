@@ -4,6 +4,7 @@ import type {
   CreateDebtPaymentForOwnerInput,
   OwnedDebtPayment,
   OwnedDebtPaymentAccount,
+  OwnedDebtPaymentLinkedTransaction,
   OwnedDebtPaymentPeriod,
 } from "@/modules/debt/application/owned-debt-payment-repository";
 import { DuplicateDebtPaymentError } from "@/modules/debt/application/owned-debt-payment-repository";
@@ -25,6 +26,16 @@ const mocks = vi.hoisted(() => {
     userId: ownerUserId,
     currencyCode: "USD",
   }));
+  const findDebtPaymentLinkTransactionForOwner = vi.fn(async (_ownerUserId: string, transactionId: string): Promise<OwnedDebtPaymentLinkedTransaction | null> => ({
+    id: transactionId,
+    userId: owner.userId,
+    periodId: "30000000-0000-0000-0000-000000000001",
+    direction: "OUTFLOW" as const,
+    amountMinor: "15025",
+    currencyCode: "USD",
+    categoryType: "DEBT_PAYMENT" as const,
+    linkedDebtPaymentId: null,
+  }));
   const createDebtPaymentForOwner = vi.fn(async (
     ownerUserId: string,
     input: CreateDebtPaymentForOwnerInput,
@@ -35,9 +46,10 @@ const mocks = vi.hoisted(() => {
   }));
   return {
     owner,
-    repository: { findActiveDebtAccountForOwner, findPeriodForOwner, createDebtPaymentForOwner },
+    repository: { findActiveDebtAccountForOwner, findPeriodForOwner, findDebtPaymentLinkTransactionForOwner, createDebtPaymentForOwner },
     findActiveDebtAccountForOwner,
     findPeriodForOwner,
+    findDebtPaymentLinkTransactionForOwner,
     createDebtPaymentForOwner,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
     revalidatePath: vi.fn(),
@@ -65,10 +77,13 @@ vi.mock("@/lib/prisma", () => ({
 import { recordDebtPaymentAction } from "@/app/debts/actions";
 import { initialDebtPaymentActionState } from "@/app/debts/debt-payment-action-state";
 
-function paymentForm(overrides: Partial<Record<"debtAccountId" | "periodId" | "amount" | "paidOn" | "requiredPaymentOverride" | "notes" | "userId", string>> = {}) {
+function paymentForm(overrides: Partial<Record<"debtAccountId" | "periodId" | "linkedTransactionId" | "amount" | "paidOn" | "requiredPaymentOverride" | "notes" | "userId", string>> = {}) {
   const formData = new FormData();
   formData.set("debtAccountId", overrides.debtAccountId ?? "10000000-0000-0000-0000-000000000001");
   formData.set("periodId", overrides.periodId ?? "30000000-0000-0000-0000-000000000001");
+  if (overrides.linkedTransactionId !== undefined) {
+    formData.set("linkedTransactionId", overrides.linkedTransactionId);
+  }
   formData.set("amount", overrides.amount ?? "150.25");
   formData.set("paidOn", overrides.paidOn ?? "2026-09-15");
   if (overrides.requiredPaymentOverride !== undefined) {
@@ -94,6 +109,16 @@ describe("debt payment server action", () => {
       userId: ownerUserId,
       currencyCode: "USD",
     }));
+    mocks.findDebtPaymentLinkTransactionForOwner.mockImplementation(async (_ownerUserId: string, transactionId: string): Promise<OwnedDebtPaymentLinkedTransaction | null> => ({
+      id: transactionId,
+      userId: mocks.owner.userId,
+      periodId: "30000000-0000-0000-0000-000000000001",
+      direction: "OUTFLOW",
+      amountMinor: "15025",
+      currencyCode: "USD",
+      categoryType: "DEBT_PAYMENT",
+      linkedDebtPaymentId: null,
+    }));
     mocks.createDebtPaymentForOwner.mockImplementation(async (ownerUserId: string, input: CreateDebtPaymentForOwnerInput) => ({
       id: "20000000-0000-0000-0000-000000000001",
       userId: ownerUserId,
@@ -115,6 +140,7 @@ describe("debt payment server action", () => {
     expect(mocks.createDebtPaymentForOwner).toHaveBeenCalledWith(mocks.owner.userId, {
       debtAccountId: "10000000-0000-0000-0000-000000000001",
       periodId: "30000000-0000-0000-0000-000000000001",
+      linkedTransactionId: null,
       amountMinor: "15025",
       currencyCode: "USD",
       paidOn: "2026-09-15",
@@ -124,9 +150,27 @@ describe("debt payment server action", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/debts");
   });
 
+  it("passes optional linked transaction ids as owner-scoped resource identifiers", async () => {
+    const result = await recordDebtPaymentAction(
+      initialDebtPaymentActionState,
+      paymentForm({ linkedTransactionId: "50000000-0000-0000-0000-000000000001" }),
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Debt payment recorded.",
+      fieldErrors: {},
+    });
+    expect(mocks.findDebtPaymentLinkTransactionForOwner).toHaveBeenCalledWith(mocks.owner.userId, "50000000-0000-0000-0000-000000000001");
+    expect(mocks.createDebtPaymentForOwner).toHaveBeenCalledWith(mocks.owner.userId, expect.objectContaining({
+      linkedTransactionId: "50000000-0000-0000-0000-000000000001",
+    }));
+  });
+
   it.each([
     ["debtAccountId", { debtAccountId: "not-a-uuid" }, "Select a valid active debt account."],
     ["periodId", { periodId: "not-a-uuid" }, "Select a valid monthly period."],
+    ["linkedTransactionId", { linkedTransactionId: "not-a-uuid" }, "Select a valid linked transaction or leave it blank."],
     ["amount", { amount: "10.001" }, "Enter a valid payment amount for the selected debt account currency."],
     ["paidOn", { paidOn: "" }, "Enter a paid date."],
     ["paidOn", { paidOn: "2026-02-30" }, "Enter a valid paid date."],
@@ -207,6 +251,32 @@ describe("debt payment server action", () => {
       status: "error",
       message: "Select a monthly period that uses the same currency as the debt account.",
       fieldErrors: { periodId: "Select a monthly period that uses the same currency as the debt account." },
+    });
+    expect(mocks.createDebtPaymentForOwner).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("returns safe linked transaction feedback when the transaction cannot be linked", async () => {
+    mocks.findDebtPaymentLinkTransactionForOwner.mockResolvedValueOnce({
+      id: "50000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      periodId: "30000000-0000-0000-0000-000000000001",
+      direction: "OUTFLOW",
+      amountMinor: "99999",
+      currencyCode: "USD",
+      categoryType: "DEBT_PAYMENT",
+      linkedDebtPaymentId: null,
+    });
+
+    const result = await recordDebtPaymentAction(
+      initialDebtPaymentActionState,
+      paymentForm({ linkedTransactionId: "50000000-0000-0000-0000-000000000001" }),
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Select an unlinked debt-payment transaction from the same period with matching amount and currency.",
+      fieldErrors: { linkedTransactionId: "Select an unlinked debt-payment transaction from the same period with matching amount and currency." },
     });
     expect(mocks.createDebtPaymentForOwner).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
