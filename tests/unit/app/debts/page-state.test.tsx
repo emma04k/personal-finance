@@ -153,6 +153,7 @@ describe("/debts account list state", () => {
           monthStart: "2026-10-01",
           currencyCode: "USD",
         },
+        incomeBasis: "actual",
         monthlyRequiredDebtPaymentTotalMinor: "45000",
         debtToIncomeRate: { numerator: "45000", denominator: "100000" },
         debtBand: "strained",
@@ -236,7 +237,7 @@ describe("/debts account list state", () => {
     expect(planningRepository.listTransactionsForOwnerPeriod).not.toHaveBeenCalled();
   });
 
-  it("does not use planned income as a fallback for the first diagnostic slice", async () => {
+  it("falls back to complete positive planned income as a labeled estimate when actual income is unavailable", async () => {
     const selectedPeriod = period();
     const repository = {
       listActiveDebtAccountsForOwner: vi.fn().mockResolvedValue([activeAccount()]),
@@ -261,13 +262,91 @@ describe("/debts account list state", () => {
     })).resolves.toMatchObject({
       status: "authenticated",
       diagnostic: {
-        status: "unavailable",
-        reason: "ACTUAL_INCOME_MISSING",
+        status: "available",
+        incomeBasis: "planned-estimate",
         period: { label: "2026-09", currencyCode: "USD" },
         monthlyRequiredDebtPaymentTotalMinor: "15000",
+        debtToIncomeRate: { numerator: "15000", denominator: "100000" },
+        debtBand: "stable",
       },
     });
   });
+
+  it("uses the complete positive planned income total as the estimate when actual income is incomplete", async () => {
+    const selectedPeriod = period();
+    const repository = {
+      listActiveDebtAccountsForOwner: vi.fn().mockResolvedValue([activeAccount()]),
+    };
+    const planningRepository = {
+      listPeriodsForOwner: vi.fn().mockResolvedValue([selectedPeriod]),
+      listPlannedBudgetLinesForOwnerPeriod: vi.fn().mockResolvedValue([
+        plannedLine({ id: "income-plan-1", periodId: selectedPeriod.id, categoryId: "salary", plannedAmountMinor: "40000" }),
+        plannedLine({ id: "income-plan-2", periodId: selectedPeriod.id, categoryId: "contract", plannedAmountMinor: "60000" }),
+      ]),
+      listTransactionsForOwnerPeriod: vi.fn().mockResolvedValue([
+        transaction({ periodId: selectedPeriod.id, categoryId: "salary", amountMinor: "1000" }),
+      ]),
+    };
+    const paymentRepository = {
+      listDebtPaymentsForOwner: vi.fn().mockResolvedValue([]),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn().mockResolvedValue([]),
+    };
+
+    await expect(loadDebtAccountListState({
+      getOwner: async () => ({ userId: ownerUserId, role: "OWNER", email: "owner@example.com" }),
+      repository,
+      planningRepository,
+      paymentRepository,
+    })).resolves.toMatchObject({
+      status: "authenticated",
+      diagnostic: {
+        status: "available",
+        incomeBasis: "planned-estimate",
+        monthlyRequiredDebtPaymentTotalMinor: "15000",
+        debtToIncomeRate: { numerator: "15000", denominator: "100000" },
+      },
+    });
+  });
+
+  it.each([
+    { plannedAmountMinor: null, expectedReason: "PLANNED_INCOME_MISSING" },
+    { plannedAmountMinor: "0", expectedReason: "ZERO_PLANNED_INCOME" },
+  ])(
+    "leaves the diagnostic unavailable with $expectedReason when fallback planned income is not positive",
+    async ({ plannedAmountMinor, expectedReason }) => {
+      const selectedPeriod = period();
+      const repository = {
+        listActiveDebtAccountsForOwner: vi.fn().mockResolvedValue([activeAccount()]),
+      };
+      const planningRepository = {
+        listPeriodsForOwner: vi.fn().mockResolvedValue([selectedPeriod]),
+        listPlannedBudgetLinesForOwnerPeriod: vi.fn().mockResolvedValue(
+          plannedAmountMinor === null
+            ? []
+            : [plannedLine({ periodId: selectedPeriod.id, plannedAmountMinor })],
+        ),
+        listTransactionsForOwnerPeriod: vi.fn().mockResolvedValue([]),
+      };
+      const paymentRepository = {
+        listDebtPaymentsForOwner: vi.fn().mockResolvedValue([]),
+        listDebtPaymentTransactionCandidatesForOwner: vi.fn().mockResolvedValue([]),
+      };
+
+      await expect(loadDebtAccountListState({
+        getOwner: async () => ({ userId: ownerUserId, role: "OWNER", email: "owner@example.com" }),
+        repository,
+        planningRepository,
+        paymentRepository,
+      })).resolves.toMatchObject({
+        status: "authenticated",
+        diagnostic: {
+          status: "unavailable",
+          reason: expectedReason,
+          monthlyRequiredDebtPaymentTotalMinor: "15000",
+        },
+      });
+    },
+  );
 
   it("marks the diagnostic unavailable when actual income is intentionally zero", async () => {
     const selectedPeriod = period();
@@ -276,7 +355,9 @@ describe("/debts account list state", () => {
     };
     const planningRepository = {
       listPeriodsForOwner: vi.fn().mockResolvedValue([selectedPeriod]),
-      listPlannedBudgetLinesForOwnerPeriod: vi.fn().mockResolvedValue([]),
+      listPlannedBudgetLinesForOwnerPeriod: vi.fn().mockResolvedValue([
+        plannedLine({ periodId: selectedPeriod.id, plannedAmountMinor: "100000" }),
+      ]),
       listTransactionsForOwnerPeriod: vi.fn().mockResolvedValue([
         transaction({ periodId: selectedPeriod.id, amountMinor: "0" }),
       ]),

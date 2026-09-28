@@ -20,8 +20,9 @@ import type {
   OwnedDebtPaymentTransactionCandidate,
 } from "@/modules/debt/application/owned-debt-payment-repository";
 import { buildMonthlyBudgetSummary } from "@/modules/budget/application/monthly-budget-summary-workflow";
+import type { AggregateMoney } from "@/modules/budget/domain/budget-summary";
 import { diagnoseDebt, type DebtBand } from "@/modules/debt/domain/debt-diagnostic";
-import { createCurrencyCode, nonNegativeMoney, type Money } from "@/modules/finance/domain/money";
+import { createCurrencyCode, nonNegativeMoney, type CurrencyCode, type Money } from "@/modules/finance/domain/money";
 import { PrismaOwnedDebtAccountRepository } from "@/modules/debt/infrastructure/prisma-owned-debt-account-repository";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
 import { PrismaOwnedDebtPaymentRepository } from "@/modules/debt/infrastructure/prisma-owned-debt-payment-repository";
@@ -57,12 +58,15 @@ export type DebtDiagnosticUnavailableReason =
   | "NO_ACTIVE_DEBT_ACCOUNTS"
   | "ACTUAL_INCOME_MISSING"
   | "ZERO_ACTUAL_INCOME"
+  | "PLANNED_INCOME_MISSING"
+  | "ZERO_PLANNED_INCOME"
   | "UNSUPPORTED_DIAGNOSTIC_DATA";
 
 export type DebtDiagnosticSummaryState =
   | Readonly<{
       status: "available";
       period: DebtDiagnosticPeriodSummary;
+      incomeBasis: "actual" | "planned-estimate";
       monthlyRequiredDebtPaymentTotalMinor: string;
       debtToIncomeRate: Readonly<{ numerator: string; denominator: string }>;
       debtBand: DebtBand;
@@ -190,12 +194,10 @@ function buildPeriodDiagnostic({
   if (!currency.ok) {
     return { status: "unavailable", reason: "UNSUPPORTED_DIAGNOSTIC_DATA", period: periodSummary, contributors };
   }
-  const monthlyIncome = summary.value.income.completeness === "complete" && !summary.value.income.plannedValuesUsed
-    ? summary.value.income.amount
-    : null;
+  const selectedIncome = selectDiagnosticIncome(summary.value.income, plannedBudgetLines, period.id, currency.value);
   const diagnostic = diagnoseDebt({
     currency: currency.value,
-    monthlyIncome,
+    monthlyIncome: selectedIncome.monthlyIncome,
     debtPayments: requiredPayments.map((amount, index) => ({
       id: contributors[index]?.accountId ?? `required-payment-${index}`,
       amount,
@@ -207,17 +209,20 @@ function buildPeriodDiagnostic({
 
   const monthlyRequiredDebtPaymentTotalMinor = diagnostic.value.monthlyDebtPayments.minorUnits.toString();
   if (!diagnostic.value.debtToIncomeRate.available) {
+    const unavailableReason = selectedIncome.basis === null
+      ? selectedIncome.unavailableReason
+      : "ACTUAL_INCOME_MISSING";
     return {
       status: "unavailable",
       reason: diagnostic.value.debtToIncomeRate.reason === "ZERO_INCOME"
         ? "ZERO_ACTUAL_INCOME"
-        : "ACTUAL_INCOME_MISSING",
+        : unavailableReason,
       period: periodSummary,
       monthlyRequiredDebtPaymentTotalMinor,
       contributors,
     };
   }
-  if (!diagnostic.value.debtBand.available || !diagnostic.value.saferBandMonthlyReduction.available) {
+  if (!diagnostic.value.debtBand.available || !diagnostic.value.saferBandMonthlyReduction.available || selectedIncome.basis === null) {
     return {
       status: "unavailable",
       reason: "UNSUPPORTED_DIAGNOSTIC_DATA",
@@ -230,6 +235,7 @@ function buildPeriodDiagnostic({
   return {
     status: "available",
     period: periodSummary,
+    incomeBasis: selectedIncome.basis,
     monthlyRequiredDebtPaymentTotalMinor,
     debtToIncomeRate: {
       numerator: diagnostic.value.debtToIncomeRate.ratio.numerator.toString(),
@@ -240,6 +246,54 @@ function buildPeriodDiagnostic({
     saferBandTargetBand: diagnostic.value.saferBandMonthlyReduction.targetBand,
     contributors,
   };
+}
+
+type DiagnosticIncomeBasis = "actual" | "planned-estimate";
+
+function selectDiagnosticIncome(
+  income: AggregateMoney,
+  plannedBudgetLines: readonly OwnedBudgetLine[],
+  periodId: string,
+  currency: CurrencyCode,
+):
+  | Readonly<{ monthlyIncome: Money; basis: DiagnosticIncomeBasis }>
+  | Readonly<{ monthlyIncome: null; basis: null; unavailableReason: DebtDiagnosticUnavailableReason }> {
+  if (income.completeness !== "complete") {
+    return selectPlannedIncomeEstimate(plannedBudgetLines, periodId, currency);
+  }
+  if (!income.plannedValuesUsed) {
+    return { monthlyIncome: income.amount, basis: "actual" };
+  }
+  return selectPlannedIncomeEstimate(plannedBudgetLines, periodId, currency);
+}
+
+function selectPlannedIncomeEstimate(
+  plannedBudgetLines: readonly OwnedBudgetLine[],
+  periodId: string,
+  currency: CurrencyCode,
+):
+  | Readonly<{ monthlyIncome: Money; basis: "planned-estimate" }>
+  | Readonly<{ monthlyIncome: null; basis: null; unavailableReason: "PLANNED_INCOME_MISSING" | "ZERO_PLANNED_INCOME" }> {
+  let plannedIncomeTotal = BigInt("0");
+  let plannedIncomeCount = 0;
+  for (const line of plannedBudgetLines) {
+    if (line.periodId !== periodId || line.categoryType !== "INCOME") continue;
+    if (line.currencyCode !== currency || !canonicalMinorUnits.test(line.plannedAmountMinor)) {
+      return { monthlyIncome: null, basis: null, unavailableReason: "PLANNED_INCOME_MISSING" };
+    }
+    plannedIncomeTotal += BigInt(line.plannedAmountMinor);
+    plannedIncomeCount += 1;
+  }
+  if (plannedIncomeCount === 0) {
+    return { monthlyIncome: null, basis: null, unavailableReason: "PLANNED_INCOME_MISSING" };
+  }
+  if (plannedIncomeTotal === BigInt("0")) {
+    return { monthlyIncome: null, basis: null, unavailableReason: "ZERO_PLANNED_INCOME" };
+  }
+  const amount = nonNegativeMoney(plannedIncomeTotal, currency);
+  return amount.ok
+    ? { monthlyIncome: amount.value, basis: "planned-estimate" }
+    : { monthlyIncome: null, basis: null, unavailableReason: "PLANNED_INCOME_MISSING" };
 }
 
 function selectLatestPeriod(periods: readonly OwnedPeriod[]): OwnedPeriod | null {

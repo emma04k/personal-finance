@@ -131,7 +131,7 @@ function DebtDiagnosticSummarySection({ diagnostic }: { readonly diagnostic: Deb
           <h2 id="debt-diagnostic-summary-heading">Debt diagnostic summary unavailable</h2>
           <p>{copy}</p>
           <p>
-            This is an educational signal, not financial advice. It uses actual income only in this slice.
+            This is an educational signal, not financial advice. It uses actual income when complete and positive; otherwise it can use a positive planned income estimate.
           </p>
         </div>
         <dl>
@@ -159,19 +159,23 @@ function DebtDiagnosticSummarySection({ diagnostic }: { readonly diagnostic: Deb
     );
   }
 
+  const basisCopy = diagnosticIncomeBasisCopy(diagnostic.incomeBasis);
+
   return (
     <section className="debt-panel" aria-labelledby="debt-diagnostic-summary-heading">
       <div>
         <p className="eyebrow">Read-only diagnostic</p>
         <h2 id="debt-diagnostic-summary-heading">Debt diagnostic summary</h2>
-        <p>
-          This educational signal, not financial advice, compares active required debt payments with actual income for the selected period.
-        </p>
+        <p>{basisCopy}</p>
       </div>
       <dl>
         <div>
           <dt>Selected period</dt>
           <dd>{diagnostic.period.label}</dd>
+        </div>
+        <div>
+          <dt>Income basis</dt>
+          <dd>{diagnosticIncomeBasisLabel(diagnostic.incomeBasis)}</dd>
         </div>
         <div>
           <dt>Monthly required debt payment total</dt>
@@ -221,12 +225,26 @@ function DiagnosticContributors({ diagnostic }: { readonly diagnostic: DebtDiagn
 }
 
 type DebtDiagnosticUnavailableState = Extract<DebtDiagnosticSummaryState, { readonly status: "unavailable" }>;
+type DebtDiagnosticAvailableState = Extract<DebtDiagnosticSummaryState, { readonly status: "available" }>;
+
+function diagnosticIncomeBasisLabel(basis: DebtDiagnosticAvailableState["incomeBasis"]) {
+  return basis === "actual" ? "Actual income" : "Planned income estimate";
+}
+
+function diagnosticIncomeBasisCopy(basis: DebtDiagnosticAvailableState["incomeBasis"]) {
+  if (basis === "actual") {
+    return "This educational signal, not financial advice, compares active required debt payments with actual income for the selected period.";
+  }
+  return "This planned-income estimate uses planned income because actual income is unavailable or incomplete. It is an estimate, not actual financial advice.";
+}
 
 function diagnosticUnavailableCopy(reason: DebtDiagnosticUnavailableState["reason"]) {
   if (reason === "NO_MONTHLY_PERIOD") return "Create a monthly budget period before reading this diagnostic.";
   if (reason === "NO_ACTIVE_DEBT_ACCOUNTS") return "Add an active debt account before reading this diagnostic.";
   if (reason === "ACTUAL_INCOME_MISSING") return "Record at least one actual income transaction for the selected period before reading this diagnostic.";
   if (reason === "ZERO_ACTUAL_INCOME") return "Actual income is zero for this period, so a debt-to-income rate is not available.";
+  if (reason === "PLANNED_INCOME_MISSING") return "Add a positive planned income estimate before reading this diagnostic when actual income is unavailable.";
+  if (reason === "ZERO_PLANNED_INCOME") return "Planned income is zero for this period, so a planned-income estimate is not available.";
   return "The diagnostic inputs could not be read safely for this period.";
 }
 
