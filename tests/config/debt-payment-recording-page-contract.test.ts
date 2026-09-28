@@ -56,12 +56,30 @@ describe("debt payment recording page contract", () => {
     expect(state).toMatch(/periods/);
   });
 
-  it("keeps debt payment recording as a create-only slice without balance reduction, history, delete, charts, imports, or integrations", () => {
+  it("renders owner-scoped debt payment history server-side with safe review fields and an empty state", () => {
+    const page = source(debtsPagePath);
+    const state = source(debtsStatePath);
+
+    expect(state).toMatch(/new PrismaOwnedDebtPaymentRepository\(prisma\)/);
+    expect(state).toMatch(/listDebtPaymentsForOwner\(owner\.userId\)/);
+    expect(page).toMatch(/<DebtPaymentHistorySection payments=\{state\.paymentHistory\} \/>/);
+    expect(page).toMatch(/function DebtPaymentHistorySection\(\{ payments \}/);
+    expect(page).toMatch(/No debt payments are recorded yet\./);
+    expect(page).toMatch(/payment\.accountLabel/);
+    expect(page).toMatch(/formatMonthLabel\(payment\.periodMonthStart\)/);
+    expect(page).toMatch(/formatCurrencyMinorUnits\(payment\.amountMinor, payment\.currencyCode\)/);
+    expect(page).toMatch(/formatDateLabel\(payment\.paidOn\)/);
+    expect(page).toMatch(/payment\.requiredPaymentOverrideMinor/);
+    expect(page).toMatch(/payment\.notes/);
+    expect(page).not.toMatch(/payment\.userId|userId: payment|debtAccountId: payment|periodId: payment/);
+  });
+
+  it("keeps debt payment recording and history read-only without balance reduction, edit/delete, charts, imports, or integrations", () => {
     const page = source(debtsPagePath);
     const actions = source(debtsActionsPath);
     const form = source(debtPaymentFormPath);
 
     expect(`${page}\n${actions}\n${form}`).toMatch(/recordDebtPaymentAction/);
-    expect(`${page}\n${actions}\n${form}`).not.toMatch(/deletePayment|editPayment|payment history|payment list|currentBalanceMinor\s*[-+]|recharts|Chart|CSV|XLSX|PDF|workbook|import job|advisor|provider|bank sync|external integration/i);
+    expect(`${page}\n${actions}\n${form}`).not.toMatch(/deletePayment|editPayment|currentBalanceMinor\s*[-+]|recharts|Chart|CSV|XLSX|PDF|workbook|import job|advisor|provider|bank sync|external integration/i);
   });
 });

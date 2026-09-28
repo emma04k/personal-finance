@@ -23,6 +23,17 @@ export type OwnedDebtPaymentPeriod = {
   readonly currencyCode: string;
 };
 
+export type OwnedDebtPaymentHistoryEntry = {
+  readonly id: string;
+  readonly accountLabel: string;
+  readonly periodMonthStart: string;
+  readonly amountMinor: string;
+  readonly currencyCode: string;
+  readonly paidOn: string;
+  readonly requiredPaymentOverrideMinor: string | null;
+  readonly notes: string | null;
+};
+
 export type CreateDebtPaymentForOwnerInput = {
   readonly periodId: string;
   readonly debtAccountId: string;
@@ -41,6 +52,9 @@ export class DuplicateDebtPaymentError extends Error {
 }
 
 export type OwnedDebtPaymentRepository = {
+  readonly listDebtPaymentsForOwner: (
+    ownerUserId: string,
+  ) => Promise<readonly OwnedDebtPaymentHistoryEntry[]>;
   readonly findActiveDebtAccountForOwner: (
     ownerUserId: string,
     debtAccountId: string,

@@ -36,7 +36,10 @@ export async function recordDebtPayment({
   repository,
 }: {
   readonly owner: OwnershipContext;
-  readonly repository: OwnedDebtPaymentRepository;
+  readonly repository: Pick<
+    OwnedDebtPaymentRepository,
+    "findActiveDebtAccountForOwner" | "findPeriodForOwner" | "createDebtPaymentForOwner"
+  >;
   readonly input: {
     readonly debtAccountId: string;
     readonly periodId: string;

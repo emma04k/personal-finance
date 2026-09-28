@@ -2,6 +2,7 @@ import { AppShell } from "@/components/app-shell";
 import { formatCurrencyMinorUnits } from "@/modules/finance/application/currency-amount";
 import type { DebtBand } from "@/modules/debt/domain/debt-diagnostic";
 import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
+import type { OwnedDebtPaymentHistoryEntry } from "@/modules/debt/application/owned-debt-payment-repository";
 import type { OwnedPeriod } from "@/modules/budget/application/owned-planning-repository";
 import { loadDebtAccountListState } from "./debt-account-list-state";
 import { DebtAccountForm } from "./debt-account-form";
@@ -96,6 +97,7 @@ export default async function DebtsPage() {
             <>
               <DebtAccountCreateSection />
               <DebtPaymentSection accounts={state.accounts} periods={state.periods} />
+              <DebtPaymentHistorySection payments={state.paymentHistory} />
               <DebtAccountSection accounts={state.accounts} />
             </>
           )}
@@ -153,6 +155,68 @@ function DebtPaymentSection({
         </p>
       </div>
       <DebtPaymentForm accounts={paymentAccounts} periods={paymentPeriods} />
+    </section>
+  );
+}
+
+function DebtPaymentHistorySection({ payments }: { readonly payments: readonly OwnedDebtPaymentHistoryEntry[] }) {
+  if (payments.length === 0) {
+    return (
+      <section className="debt-empty-state" role="status" aria-labelledby="debt-payment-history-empty-heading">
+        <div>
+          <p className="eyebrow">Payment history</p>
+          <h2 id="debt-payment-history-empty-heading">No debt payments are recorded yet.</h2>
+          <p>
+            Recorded owner debt payments will appear here after the payment form succeeds.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="debt-panel" aria-labelledby="debt-payment-history-heading">
+      <div>
+        <p className="eyebrow">Payment history</p>
+        <h2 id="debt-payment-history-heading">Recorded debt payments</h2>
+        <p>
+          Read-only payment records for the authenticated owner, ordered by most recent paid date first.
+        </p>
+      </div>
+
+      <div className="debt-account-grid" aria-label="Recorded debt payments">
+        {payments.map((payment) => (
+          <article className="debt-account-card" key={payment.id}>
+            <div>
+              <p className="eyebrow">Account</p>
+              <h3>{payment.accountLabel}</h3>
+              <small>Period: {formatMonthLabel(payment.periodMonthStart)}</small>
+            </div>
+            <dl>
+              <div>
+                <dt>Payment amount</dt>
+                <dd>{formatCurrencyMinorUnits(payment.amountMinor, payment.currencyCode)}</dd>
+              </div>
+              <div>
+                <dt>Paid date</dt>
+                <dd>{formatDateLabel(payment.paidOn)}</dd>
+              </div>
+              <div>
+                <dt>Required payment override</dt>
+                <dd>
+                  {payment.requiredPaymentOverrideMinor
+                    ? formatCurrencyMinorUnits(payment.requiredPaymentOverrideMinor, payment.currencyCode)
+                    : "Not recorded"}
+                </dd>
+              </div>
+              <div>
+                <dt>Notes</dt>
+                <dd>{payment.notes ?? "No notes recorded"}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -251,4 +315,12 @@ function formatDebtAccountStatus(status: OwnedDebtAccount["status"]) {
   if (status === "ACTIVE") return "Active";
   if (status === "PAID_OFF") return "Paid off";
   return "Closed";
+}
+
+function formatMonthLabel(monthStart: string) {
+  return monthStart.slice(0, 7);
+}
+
+function formatDateLabel(date: string) {
+  return date;
 }
