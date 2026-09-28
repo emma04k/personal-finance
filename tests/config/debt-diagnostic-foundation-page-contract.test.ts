@@ -186,6 +186,50 @@ describe("debt diagnostic foundation page contract", () => {
     expect(state).toMatch(/UserNotActiveError/);
   });
 
+  it("renders the Phase 15 read-only diagnostic summary from state without client-owned identifiers", () => {
+    const page = source(debtsPagePath);
+    const state = source(debtsStatePath);
+
+    expect(page).toMatch(/<DebtDiagnosticSummarySection diagnostic=\{state\.diagnostic\} \/>/);
+    expect(page).toMatch(/function DebtDiagnosticSummarySection\(\{ diagnostic \}: \{ readonly diagnostic: DebtDiagnosticSummaryState \}\)/);
+    expect(page).toMatch(/debt-diagnostic-summary-heading/);
+    expect(page).toMatch(/Monthly required debt payment total/);
+    expect(page).toMatch(/Debt-to-income rate/);
+    expect(page).toMatch(/Active debt account contributors/);
+    expect(page).toMatch(/formatExactPercent\(diagnostic\.debtToIncomeRate\)/);
+    expect(page).toMatch(/formatCurrencyMinorUnits\(diagnostic\.monthlyRequiredDebtPaymentTotalMinor, diagnostic\.period\.currencyCode\)/);
+    expect(page).toMatch(/diagnostic\.contributors\.map\(\(contributor\)/);
+    expect(page).not.toMatch(/name="userId"|value=\{.*userId|getServerSession|@\/lib\/prisma/);
+    expect(state).toMatch(/requireCurrentOwnershipContext/);
+    expect(state).toMatch(/buildMonthlyBudgetSummary/);
+    expect(state).toMatch(/diagnoseDebt/);
+    expect(state).toMatch(/listPlannedBudgetLinesForOwnerPeriod\(ownerUserId, selectedPeriod\.id\)/);
+    expect(state).toMatch(/listTransactionsForOwnerPeriod\(ownerUserId, selectedPeriod\.id\)/);
+  });
+
+  it("renders educational unavailable states for missing diagnostic inputs", () => {
+    const page = source(debtsPagePath);
+
+    expect(page).toMatch(/NO_MONTHLY_PERIOD/);
+    expect(page).toMatch(/Create a monthly budget period before reading this diagnostic\./);
+    expect(page).toMatch(/NO_ACTIVE_DEBT_ACCOUNTS/);
+    expect(page).toMatch(/Add an active debt account before reading this diagnostic\./);
+    expect(page).toMatch(/ACTUAL_INCOME_MISSING/);
+    expect(page).toMatch(/actual income transaction/);
+    expect(page).toMatch(/ZERO_ACTUAL_INCOME/);
+    expect(page).toMatch(/Actual income is zero for this period/);
+    expect(page).toMatch(/educational signal, not financial advice/);
+  });
+
+  it("keeps Phase 15 read-only and out of chart, import, AI, provider, bank sync, route, and schema scope", () => {
+    const page = source(debtsPagePath);
+    const state = source(debtsStatePath);
+
+    expect(existsSync(debtsRoutePath)).toBe(false);
+    expect(`${page}\n${state}`).not.toMatch(/recharts|<canvas|<svg|CSV|XLSX|workbook|import job|\bAI\b|\badvisor\b|\bprovider\b|bank sync|external integration/i);
+    expect(`${page}\n${state}`).not.toMatch(/createDebtPaymentAction|updateDebtPaymentAction|deleteDebtPaymentAction|schema\.prisma/);
+  });
+
   it("defines owner-scoped read-only debt account repositories", () => {
     const repository = source(debtRepositoryPath);
     const prismaRepository = source(prismaDebtRepositoryPath);

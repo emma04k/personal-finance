@@ -4,7 +4,7 @@ import type { DebtBand } from "@/modules/debt/domain/debt-diagnostic";
 import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
 import type { OwnedDebtPaymentHistoryEntry } from "@/modules/debt/application/owned-debt-payment-repository";
 import type { OwnedPeriod } from "@/modules/budget/application/owned-planning-repository";
-import { loadDebtAccountListState } from "./debt-account-list-state";
+import { loadDebtAccountListState, type DebtDiagnosticSummaryState } from "./debt-account-list-state";
 import { DebtAccountForm } from "./debt-account-form";
 import { DebtAccountEditForm, type DebtAccountEditFormAccount } from "./debt-account-edit-form";
 import { DebtAccountArchiveForm, type DebtAccountArchiveFormAccount } from "./debt-account-archive-form";
@@ -95,6 +95,7 @@ export default async function DebtsPage() {
           ? <DebtAuthenticationRequiredState />
           : (
             <>
+              <DebtDiagnosticSummarySection diagnostic={state.diagnostic} />
               <DebtAccountCreateSection />
               <DebtPaymentSection accounts={state.accounts} periods={state.periods} />
               <DebtPaymentHistorySection payments={state.paymentHistory} />
@@ -118,6 +119,115 @@ function DebtAuthenticationRequiredState() {
       </div>
     </section>
   );
+}
+
+function DebtDiagnosticSummarySection({ diagnostic }: { readonly diagnostic: DebtDiagnosticSummaryState }) {
+  if (diagnostic.status === "unavailable") {
+    const copy = diagnosticUnavailableCopy(diagnostic.reason);
+    return (
+      <section className="debt-panel" role="status" aria-labelledby="debt-diagnostic-summary-heading">
+        <div>
+          <p className="eyebrow">Read-only diagnostic</p>
+          <h2 id="debt-diagnostic-summary-heading">Debt diagnostic summary unavailable</h2>
+          <p>{copy}</p>
+          <p>
+            This is an educational signal, not financial advice. It uses actual income only in this slice.
+          </p>
+        </div>
+        <dl>
+          <div>
+            <dt>Selected period</dt>
+            <dd>{diagnostic.period?.label ?? "No monthly period selected"}</dd>
+          </div>
+          {diagnostic.period ? (
+            <div>
+              <dt>Period currency</dt>
+              <dd>{diagnostic.period.currencyCode}</dd>
+            </div>
+          ) : null}
+          {diagnostic.monthlyRequiredDebtPaymentTotalMinor && diagnostic.period ? (
+            <div>
+              <dt>Monthly required debt payment total</dt>
+              <dd>{formatCurrencyMinorUnits(diagnostic.monthlyRequiredDebtPaymentTotalMinor, diagnostic.period.currencyCode)}</dd>
+            </div>
+          ) : null}
+        </dl>
+        {diagnostic.contributors && diagnostic.contributors.length > 0 ? (
+          <DiagnosticContributors diagnostic={diagnostic} />
+        ) : null}
+      </section>
+    );
+  }
+
+  return (
+    <section className="debt-panel" aria-labelledby="debt-diagnostic-summary-heading">
+      <div>
+        <p className="eyebrow">Read-only diagnostic</p>
+        <h2 id="debt-diagnostic-summary-heading">Debt diagnostic summary</h2>
+        <p>
+          This educational signal, not financial advice, compares active required debt payments with actual income for the selected period.
+        </p>
+      </div>
+      <dl>
+        <div>
+          <dt>Selected period</dt>
+          <dd>{diagnostic.period.label}</dd>
+        </div>
+        <div>
+          <dt>Monthly required debt payment total</dt>
+          <dd>{formatCurrencyMinorUnits(diagnostic.monthlyRequiredDebtPaymentTotalMinor, diagnostic.period.currencyCode)}</dd>
+        </div>
+        <div>
+          <dt>Debt-to-income rate</dt>
+          <dd>{formatExactPercent(diagnostic.debtToIncomeRate)}</dd>
+        </div>
+        <div>
+          <dt>Diagnostic band</dt>
+          <dd>{formatDebtBandLabel(diagnostic.debtBand)}</dd>
+        </div>
+        <div>
+          <dt>Reduction to reach next safer band</dt>
+          <dd>
+            {formatCurrencyMinorUnits(diagnostic.saferBandMonthlyReductionMinor, diagnostic.period.currencyCode)} toward {formatDebtBandLabel(diagnostic.saferBandTargetBand)}
+          </dd>
+        </div>
+      </dl>
+      <DiagnosticContributors diagnostic={diagnostic} />
+    </section>
+  );
+}
+
+function DiagnosticContributors({ diagnostic }: { readonly diagnostic: DebtDiagnosticSummaryState }) {
+  if (!diagnostic.contributors || !diagnostic.period) return null;
+
+  return (
+    <div className="debt-account-grid" aria-label="Active debt account contributors">
+      {diagnostic.contributors.map((contributor) => (
+        <article className="debt-account-card" key={contributor.accountId}>
+          <div>
+            <p className="eyebrow">Contributor</p>
+            <h3>{contributor.accountName}</h3>
+          </div>
+          <dl>
+            <div>
+              <dt>Required monthly payment</dt>
+              <dd>{formatCurrencyMinorUnits(contributor.requiredPaymentMinor, contributor.currencyCode)}</dd>
+            </div>
+          </dl>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+type DebtDiagnosticUnavailableState = Extract<DebtDiagnosticSummaryState, { readonly status: "unavailable" }>;
+
+function diagnosticUnavailableCopy(reason: DebtDiagnosticUnavailableState["reason"]) {
+  if (reason === "NO_MONTHLY_PERIOD") return "Create a monthly budget period before reading this diagnostic.";
+  if (reason === "NO_ACTIVE_DEBT_ACCOUNTS") return "Add an active debt account before reading this diagnostic.";
+  if (reason === "ACTUAL_INCOME_MISSING") return "Record at least one actual income transaction for the selected period before reading this diagnostic.";
+  if (reason === "ZERO_ACTUAL_INCOME") return "Actual income is zero for this period, so a debt-to-income rate is not available.";
+  return "The diagnostic inputs could not be read safely for this period.";
 }
 
 function DebtAccountCreateSection() {
@@ -315,6 +425,22 @@ function formatDebtAccountStatus(status: OwnedDebtAccount["status"]) {
   if (status === "ACTIVE") return "Active";
   if (status === "PAID_OFF") return "Paid off";
   return "Closed";
+}
+
+function formatDebtBandLabel(band: DebtBand) {
+  if (band === "stable") return "Stable / ideal";
+  if (band === "watch") return "Watch / caution";
+  if (band === "strained") return "Strained / capacity exceeded";
+  return "Critical / over-indebted";
+}
+
+function formatExactPercent(ratio: { readonly numerator: string; readonly denominator: string }) {
+  const denominator = BigInt(ratio.denominator);
+  if (denominator === BigInt("0")) return "Unavailable";
+  const basisPoints = BigInt(ratio.numerator) * BigInt("10000") / denominator;
+  const whole = basisPoints / BigInt("100");
+  const fractional = (basisPoints % BigInt("100")).toString().padStart(2, "0");
+  return `${whole.toString()}.${fractional}%`;
 }
 
 function formatMonthLabel(monthStart: string) {
