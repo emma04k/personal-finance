@@ -185,6 +185,7 @@ export async function recordDebtPaymentAction(
     input: {
       debtAccountId: stringField(formData, "debtAccountId"),
       periodId: stringField(formData, "periodId"),
+      linkedTransactionId: stringField(formData, "linkedTransactionId"),
       amount: stringField(formData, "amount"),
       paidOn: stringField(formData, "paidOn"),
       requiredPaymentOverride: stringField(formData, "requiredPaymentOverride"),
@@ -243,6 +244,8 @@ function debtPaymentErrorState(error: DebtPaymentRecordError): DebtPaymentAction
       return debtPaymentValidationError("periodId", "Select a monthly period.");
     case "INVALID_PERIOD_ID":
       return debtPaymentValidationError("periodId", "Select a valid monthly period.");
+    case "INVALID_TRANSACTION_ID":
+      return debtPaymentValidationError("linkedTransactionId", "Select a valid linked transaction or leave it blank.");
     case "PERIOD_NOT_FOUND":
       return debtPaymentValidationError("periodId", "Select a monthly period for your active account.");
     case "INVALID_PAYMENT_AMOUNT":
@@ -259,6 +262,14 @@ function debtPaymentErrorState(error: DebtPaymentRecordError): DebtPaymentAction
       return debtPaymentValidationError("periodId", "A payment for this account and monthly period is already recorded.");
     case "CURRENCY_MISMATCH":
       return debtPaymentValidationError("periodId", "Select a monthly period that uses the same currency as the debt account.");
+    case "TRANSACTION_NOT_FOUND":
+    case "TRANSACTION_PERIOD_MISMATCH":
+    case "TRANSACTION_DIRECTION_INVALID":
+    case "TRANSACTION_CURRENCY_MISMATCH":
+    case "TRANSACTION_AMOUNT_MISMATCH":
+    case "TRANSACTION_CATEGORY_NOT_COMPATIBLE":
+    case "TRANSACTION_ALREADY_LINKED":
+      return debtPaymentValidationError("linkedTransactionId", "Select an unlinked debt-payment transaction from the same period with matching amount and currency.");
   }
 }
 

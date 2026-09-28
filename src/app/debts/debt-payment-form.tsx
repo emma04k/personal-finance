@@ -16,12 +16,24 @@ export type DebtPaymentFormPeriod = Readonly<{
   currencyCode: string;
 }>;
 
+export type DebtPaymentFormTransactionCandidate = Readonly<{
+  id: string;
+  periodId: string;
+  occurredOn: string;
+  description: string;
+  amountMinor: string;
+  currencyCode: string;
+  categoryName: string | null;
+}>;
+
 export function DebtPaymentForm({
   accounts,
   periods,
+  transactionCandidates,
 }: {
   readonly accounts: readonly DebtPaymentFormAccount[];
   readonly periods: readonly DebtPaymentFormPeriod[];
+  readonly transactionCandidates: readonly DebtPaymentFormTransactionCandidate[];
 }) {
   const [state, action, pending] = useActionState(
     recordDebtPaymentAction,
@@ -73,6 +85,30 @@ export function DebtPaymentForm({
           </select>
           <p id="debt-payment-period-error" className="field-error">
             {state.fieldErrors?.periodId ?? ""}
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="debt-payment-linked-transaction">Linked transaction</label>
+          <select
+            id="debt-payment-linked-transaction"
+            name="linkedTransactionId"
+            aria-describedby="debt-payment-linked-transaction-help debt-payment-linked-transaction-error"
+            aria-invalid={Boolean(state.fieldErrors?.linkedTransactionId)}
+            disabled={disabled}
+          >
+            <option value="">No linked transaction</option>
+            {transactionCandidates.map((candidate) => (
+              <option value={candidate.id} key={candidate.id}>
+                {formatTransactionCandidateLabel(candidate)}
+              </option>
+            ))}
+          </select>
+          <p id="debt-payment-linked-transaction-help" className="field-help">
+            Optional. Link an existing unlinked outflow transaction from the selected period.
+          </p>
+          <p id="debt-payment-linked-transaction-error" className="field-error">
+            {state.fieldErrors?.linkedTransactionId ?? ""}
           </p>
         </div>
 
@@ -177,4 +213,9 @@ export function DebtPaymentForm({
 
 function formatPeriodLabel(period: DebtPaymentFormPeriod) {
   return period.monthStart.slice(0, 7);
+}
+
+function formatTransactionCandidateLabel(candidate: DebtPaymentFormTransactionCandidate) {
+  const category = candidate.categoryName ? ` · ${candidate.categoryName}` : "";
+  return `${candidate.occurredOn} · ${candidate.description} · ${candidate.amountMinor} ${candidate.currencyCode}${category}`;
 }

@@ -76,6 +76,19 @@ function paymentHistoryEntry() {
     paidOn: "2026-09-15",
     requiredPaymentOverrideMinor: null,
     notes: "September payment",
+    linkedTransaction: null,
+  };
+}
+
+function transactionCandidate() {
+  return {
+    id: "50000000-0000-0000-0000-000000000001",
+    periodId: "30000000-0000-0000-0000-000000000001",
+    occurredOn: "2026-09-15",
+    description: "Student loan payment",
+    amountMinor: "15025",
+    currencyCode: "USD",
+    categoryName: "Debt payment",
   };
 }
 
@@ -103,6 +116,7 @@ describe("/debts account list state", () => {
       selectedPeriod,
     ];
     const paymentHistory = [paymentHistoryEntry()];
+    const transactionCandidates = [transactionCandidate()];
     const repository = {
       listActiveDebtAccountsForOwner: vi.fn().mockResolvedValue(accounts),
     };
@@ -117,6 +131,7 @@ describe("/debts account list state", () => {
     };
     const paymentRepository = {
       listDebtPaymentsForOwner: vi.fn().mockResolvedValue(paymentHistory),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn().mockResolvedValue(transactionCandidates),
     };
 
     await expect(loadDebtAccountListState({
@@ -129,6 +144,7 @@ describe("/debts account list state", () => {
       accounts,
       periods,
       paymentHistory,
+      transactionCandidates,
       diagnostic: {
         status: "available",
         period: {
@@ -163,6 +179,7 @@ describe("/debts account list state", () => {
     expect(planningRepository.listPlannedBudgetLinesForOwnerPeriod).toHaveBeenCalledWith(ownerUserId, selectedPeriod.id);
     expect(planningRepository.listTransactionsForOwnerPeriod).toHaveBeenCalledWith(ownerUserId, selectedPeriod.id);
     expect(paymentRepository.listDebtPaymentsForOwner).toHaveBeenCalledWith(ownerUserId);
+    expect(paymentRepository.listDebtPaymentTransactionCandidatesForOwner).toHaveBeenCalledWith(ownerUserId);
   });
 
   it("marks the diagnostic unavailable when the owner has no monthly period", async () => {
@@ -176,6 +193,7 @@ describe("/debts account list state", () => {
     };
     const paymentRepository = {
       listDebtPaymentsForOwner: vi.fn().mockResolvedValue([]),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn().mockResolvedValue([]),
     };
 
     await expect(loadDebtAccountListState({
@@ -202,6 +220,7 @@ describe("/debts account list state", () => {
     };
     const paymentRepository = {
       listDebtPaymentsForOwner: vi.fn().mockResolvedValue([]),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn().mockResolvedValue([]),
     };
 
     await expect(loadDebtAccountListState({
@@ -231,6 +250,7 @@ describe("/debts account list state", () => {
     };
     const paymentRepository = {
       listDebtPaymentsForOwner: vi.fn().mockResolvedValue([]),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn().mockResolvedValue([]),
     };
 
     await expect(loadDebtAccountListState({
@@ -263,6 +283,7 @@ describe("/debts account list state", () => {
     };
     const paymentRepository = {
       listDebtPaymentsForOwner: vi.fn().mockResolvedValue([]),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn().mockResolvedValue([]),
     };
 
     await expect(loadDebtAccountListState({
@@ -292,6 +313,7 @@ describe("/debts account list state", () => {
     };
     const paymentRepository = {
       listDebtPaymentsForOwner: vi.fn(),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn(),
     };
 
     await expect(loadDebtAccountListState({
@@ -320,6 +342,7 @@ describe("/debts account list state", () => {
     };
     const paymentRepository = {
       listDebtPaymentsForOwner: vi.fn(),
+      listDebtPaymentTransactionCandidatesForOwner: vi.fn(),
     };
 
     await expect(loadDebtAccountListState({

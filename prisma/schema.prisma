@@ -145,8 +145,10 @@ model Transaction {
   period    Period     @relation(fields: [periodId, userId], references: [id, userId], onDelete: Cascade)
   category  Category?  @relation(fields: [categoryId, userId], references: [id, userId])
   importJob ImportJob? @relation(fields: [importJobId, userId], references: [id, userId])
+  linkedDebtPayment DebtPayment? @relation("DebtPaymentLinkedTransaction")
 
   @@unique([userId, externalId])
+  @@unique([id, userId])
   @@index([userId])
   @@index([userId, occurredOn])
   @@index([userId, periodId])
@@ -206,6 +208,7 @@ model DebtPayment {
   userId                       String    @db.Uuid
   periodId                     String    @db.Uuid
   debtAccountId                String    @db.Uuid
+  transactionId                String?   @db.Uuid
   amountMinor                  BigInt    @default(0)
   currencyCode                 String    @db.VarChar(3)
   paidOn                       DateTime? @db.Date
@@ -217,11 +220,15 @@ model DebtPayment {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   period      Period      @relation(fields: [periodId, userId], references: [id, userId], onDelete: Cascade)
   debtAccount DebtAccount @relation(fields: [debtAccountId, userId], references: [id, userId])
+  linkedTransaction Transaction? @relation("DebtPaymentLinkedTransaction", fields: [transactionId, userId], references: [id, userId], onDelete: Restrict)
 
   @@unique([periodId, debtAccountId])
+  @@unique([transactionId])
+  @@unique([transactionId, userId])
   @@index([userId])
   @@index([userId, periodId])
   @@index([userId, debtAccountId])
+  @@index([userId, transactionId])
 }
 
 model Goal {

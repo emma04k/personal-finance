@@ -2,13 +2,13 @@ import { AppShell } from "@/components/app-shell";
 import { formatCurrencyMinorUnits } from "@/modules/finance/application/currency-amount";
 import type { DebtBand } from "@/modules/debt/domain/debt-diagnostic";
 import type { OwnedDebtAccount } from "@/modules/debt/application/owned-debt-account-repository";
-import type { OwnedDebtPaymentHistoryEntry } from "@/modules/debt/application/owned-debt-payment-repository";
+import type { OwnedDebtPaymentHistoryEntry, OwnedDebtPaymentTransactionCandidate } from "@/modules/debt/application/owned-debt-payment-repository";
 import type { OwnedPeriod } from "@/modules/budget/application/owned-planning-repository";
 import { loadDebtAccountListState, type DebtDiagnosticSummaryState } from "./debt-account-list-state";
 import { DebtAccountForm } from "./debt-account-form";
 import { DebtAccountEditForm, type DebtAccountEditFormAccount } from "./debt-account-edit-form";
 import { DebtAccountArchiveForm, type DebtAccountArchiveFormAccount } from "./debt-account-archive-form";
-import { DebtPaymentForm, type DebtPaymentFormAccount, type DebtPaymentFormPeriod } from "./debt-payment-form";
+import { DebtPaymentForm, type DebtPaymentFormAccount, type DebtPaymentFormPeriod, type DebtPaymentFormTransactionCandidate } from "./debt-payment-form";
 
 const debtDiagnosticBands = [
   {
@@ -97,7 +97,7 @@ export default async function DebtsPage() {
             <>
               <DebtDiagnosticSummarySection diagnostic={state.diagnostic} />
               <DebtAccountCreateSection />
-              <DebtPaymentSection accounts={state.accounts} periods={state.periods} />
+              <DebtPaymentSection accounts={state.accounts} periods={state.periods} transactionCandidates={state.transactionCandidates} />
               <DebtPaymentHistorySection payments={state.paymentHistory} />
               <DebtAccountSection accounts={state.accounts} />
             </>
@@ -248,12 +248,15 @@ function DebtAccountCreateSection() {
 function DebtPaymentSection({
   accounts,
   periods,
+  transactionCandidates,
 }: {
   readonly accounts: readonly OwnedDebtAccount[];
   readonly periods: readonly OwnedPeriod[];
+  readonly transactionCandidates: readonly OwnedDebtPaymentTransactionCandidate[];
 }) {
   const paymentAccounts = accounts.map((account) => toDebtPaymentFormAccount(account));
   const paymentPeriods = periods.map((period) => toDebtPaymentFormPeriod(period));
+  const paymentTransactionCandidates = transactionCandidates.map((candidate) => toDebtPaymentFormTransactionCandidate(candidate));
 
   return (
     <section className="debt-panel" aria-labelledby="debt-payment-create-heading">
@@ -264,7 +267,7 @@ function DebtPaymentSection({
           Store a payment for one active debt account and one monthly period. This records the payment only.
         </p>
       </div>
-      <DebtPaymentForm accounts={paymentAccounts} periods={paymentPeriods} />
+      <DebtPaymentForm accounts={paymentAccounts} periods={paymentPeriods} transactionCandidates={paymentTransactionCandidates} />
     </section>
   );
 }
@@ -322,6 +325,14 @@ function DebtPaymentHistorySection({ payments }: { readonly payments: readonly O
               <div>
                 <dt>Notes</dt>
                 <dd>{payment.notes ?? "No notes recorded"}</dd>
+              </div>
+              <div>
+                <dt>Linked transaction</dt>
+                <dd>
+                  {payment.linkedTransaction
+                    ? `${payment.linkedTransaction.description} on ${formatDateLabel(payment.linkedTransaction.occurredOn)} · ${formatCurrencyMinorUnits(payment.linkedTransaction.amountMinor, payment.linkedTransaction.currencyCode)}`
+                    : "No transaction linked"}
+                </dd>
               </div>
             </dl>
           </article>
@@ -418,6 +429,18 @@ function toDebtPaymentFormPeriod(period: OwnedPeriod): DebtPaymentFormPeriod {
     id: period.id,
     monthStart: period.monthStart,
     currencyCode: period.currencyCode,
+  };
+}
+
+function toDebtPaymentFormTransactionCandidate(candidate: OwnedDebtPaymentTransactionCandidate): DebtPaymentFormTransactionCandidate {
+  return {
+    id: candidate.id,
+    periodId: candidate.periodId,
+    occurredOn: candidate.occurredOn,
+    description: candidate.description,
+    amountMinor: candidate.amountMinor,
+    currencyCode: candidate.currencyCode,
+    categoryName: candidate.categoryName,
   };
 }
 
