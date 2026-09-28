@@ -221,6 +221,18 @@ describe("debt diagnostic foundation page contract", () => {
     expect(page).toMatch(/educational signal, not financial advice/);
   });
 
+  it("labels actual versus planned-estimate debt diagnostics in state and UI copy", () => {
+    const page = source(debtsPagePath);
+    const state = source(debtsStatePath);
+
+    expect(state).toMatch(/incomeBasis:\s*"actual" \| "planned-estimate"/);
+    expect(page).toMatch(/Income basis/);
+    expect(page).toMatch(/Actual income/);
+    expect(page).toMatch(/Planned income estimate/);
+    expect(page).toMatch(/uses planned income because actual income is unavailable or incomplete/i);
+    expect(page).toMatch(/estimate, not actual financial advice/i);
+  });
+
   it("keeps Phase 15 read-only and out of chart, import, AI, provider, bank sync, route, and schema scope", () => {
     const page = source(debtsPagePath);
     const state = source(debtsStatePath);
