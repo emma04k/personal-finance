@@ -104,6 +104,12 @@ export default async function ReportsPage({
             >
               Descargar PDF
             </a>
+            <a
+              className="primary-button"
+              href="/reports/import"
+            >
+              Previsualizar importación
+            </a>
           </div>
         ) : (
           <div className="empty-state" role="status">
