@@ -1231,6 +1231,51 @@ h2 {
   }
 }
 
+.reports-page {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.reports-page > p {
+  max-width: 66ch;
+  color: var(--text-muted);
+}
+
+.reports-panel {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  overflow-wrap: anywhere;
+}
+
+.reports-panel p,
+.reports-panel h2 {
+  margin-bottom: 0;
+}
+
+.reports-period-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.reports-period-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
