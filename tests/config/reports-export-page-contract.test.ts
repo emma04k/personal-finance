@@ -37,6 +37,8 @@ describe("monthly reports CSV export page contract", () => {
     expect(page).toMatch(/findPeriodForOwner\(owner\.userId, selectedPeriodId\)/);
     expect(page).toMatch(/href=\{`\/reports\/export\?periodId=\$\{selectedPeriod\.id\}`\}/);
     expect(page).toMatch(/Descargar CSV/);
+    expect(page).toMatch(/href=\{`\/reports\/export\/xlsx\?periodId=\$\{selectedPeriod\.id\}`\}/);
+    expect(page).toMatch(/Descargar XLSX/);
     expect(page).not.toMatch(/formData\.get\(["'](?:userId|ownerUserId)["']\)|name="(?:userId|ownerUserId)"|email:/);
   });
 
