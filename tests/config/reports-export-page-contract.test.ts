@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const reportsPagePath = resolve("src/app/reports/page.tsx");
 const reportsExportRoutePath = resolve("src/app/reports/export/route.ts");
+const reportsPdfExportRoutePath = resolve("src/app/reports/export/pdf/route.ts");
 const morePagePath = resolve("src/app/more/page.tsx");
 const stylesheetPath = resolve("src/app/globals.css");
 
@@ -39,6 +40,8 @@ describe("monthly reports CSV export page contract", () => {
     expect(page).toMatch(/Descargar CSV/);
     expect(page).toMatch(/href=\{`\/reports\/export\/xlsx\?periodId=\$\{selectedPeriod\.id\}`\}/);
     expect(page).toMatch(/Descargar XLSX/);
+    expect(page).toMatch(/href=\{`\/reports\/export\/pdf\?periodId=\$\{selectedPeriod\.id\}`\}/);
+    expect(page).toMatch(/Descargar PDF/);
     expect(page).not.toMatch(/formData\.get\(["'](?:userId|ownerUserId)["']\)|name="(?:userId|ownerUserId)"|email:/);
   });
 
@@ -56,8 +59,10 @@ describe("monthly reports CSV export page contract", () => {
 
   it("exposes reports from the More area copy and defines the owner-scoped export route", () => {
     expect(existsSync(reportsExportRoutePath)).toBe(true);
+    expect(existsSync(reportsPdfExportRoutePath)).toBe(true);
     const morePage = source(morePagePath);
     const route = source(reportsExportRoutePath);
+    const pdfRoute = source(reportsPdfExportRoutePath);
 
     expect(morePage).toMatch(/href="\/reports"/);
     expect(morePage).toMatch(/Reportes mensuales/);
@@ -68,7 +73,14 @@ describe("monthly reports CSV export page contract", () => {
     expect(route).toMatch(/Content-Disposition/);
     expect(route).toMatch(/Cache-Control/);
     expect(route).toMatch(/no-store/);
-    expect(route).not.toMatch(/cookies\(|headers\(\)|password|credential/i);
+    expect(pdfRoute).toMatch(/requireCurrentOwnershipContext\(\)/);
+    expect(pdfRoute).toMatch(/findPeriodForOwner\(owner\.userId, periodId\)/);
+    expect(pdfRoute).toMatch(/buildMonthlyPdfReport\(\{ period, plannedBudgetLines, transactions \}\)/);
+    expect(pdfRoute).toMatch(/Content-Type/);
+    expect(pdfRoute).toMatch(/application\/pdf|report\.value\.contentType/);
+    expect(pdfRoute).toMatch(/Cache-Control/);
+    expect(pdfRoute).toMatch(/no-store/);
+    expect(`${route}\n${pdfRoute}`).not.toMatch(/cookies\(|headers\(\)|password|credential/i);
   });
 
   it("adds mobile-first report page styles", () => {

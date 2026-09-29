@@ -57,7 +57,7 @@ export default async function ReportsPage({
         <p className="eyebrow">Reporte mensual</p>
         <h1 id="reports-heading">Reportes</h1>
         <p>
-          Exporta reportes mensuales CSV o XLSX con metadatos seguros del periodo,
+          Exporta reportes mensuales CSV, XLSX o PDF con metadatos seguros del periodo,
           totales determinísticos, líneas planeadas y transacciones reales en unidades
           menores exactas.
         </p>
@@ -97,6 +97,12 @@ export default async function ReportsPage({
               href={`/reports/export/xlsx?periodId=${selectedPeriod.id}`}
             >
               Descargar XLSX
+            </a>
+            <a
+              className="primary-button"
+              href={`/reports/export/pdf?periodId=${selectedPeriod.id}`}
+            >
+              Descargar PDF
             </a>
           </div>
         ) : (
