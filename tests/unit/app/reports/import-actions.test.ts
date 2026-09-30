@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
+import type {
+  WorkbookImportIssue,
+  WorkbookImportPreviewRow,
+} from "@/modules/budget/application/workbook-import-preview";
 import {
   AuthenticationRequiredError,
   UserNotActiveError,
@@ -22,6 +26,14 @@ const mocks = vi.hoisted(() => {
   const repository = {
     findPeriodForOwner: vi.fn(async (): Promise<typeof period | null> => period),
     listPeriodsForOwner: vi.fn(async () => [period]),
+    listActiveCategoriesForOwner: vi.fn(async () => [{
+      id: "20000000-0000-0000-0000-000000000001",
+      userId: owner.userId,
+      type: "INCOME" as const,
+      name: "Salary",
+      sortOrder: 1,
+      archivedAt: null,
+    }]),
     createCategoryForOwner: vi.fn(),
     upsertPlannedBudgetLineForOwner: vi.fn(),
     createTransactionForOwner: vi.fn(),
@@ -32,7 +44,10 @@ const mocks = vi.hoisted(() => {
     period,
     repository,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
-    parseWorkbookImportPreview: vi.fn(async () => ({
+    parseWorkbookImportPreview: vi.fn(async (): Promise<{
+      rows: readonly WorkbookImportPreviewRow[];
+      issues: readonly WorkbookImportIssue[];
+    }> => ({
       rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
       issues: [],
     })),
@@ -55,7 +70,10 @@ vi.mock("@/modules/budget/application/workbook-import-preview", () => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { previewWorkbookImportAction } from "@/app/reports/import/actions";
+import {
+  applyWorkbookImportAction,
+  previewWorkbookImportAction,
+} from "@/app/reports/import/actions";
 import { initialWorkbookImportPreviewState } from "@/app/reports/import/workbook-import-preview-action-state";
 
 const validWorkbook = new File([new Uint8Array([80, 75, 3, 4])], "Presupuesto-EDOG.xlsx", {
@@ -91,7 +109,7 @@ describe("workbook import preview action", () => {
 
     expect(state).toEqual({
       status: "success",
-      message: "Vista previa generada. Revisa las filas antes de importar en una fase futura.",
+      message: "Vista previa generada. Revisa las filas antes de aplicar la importación.",
       fieldErrors: {},
       preview: {
         rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
@@ -153,5 +171,155 @@ describe("workbook import preview action", () => {
     expect(oversizedState.fieldErrors.workbook).toBe("El archivo .xlsx debe pesar máximo 2 MB.");
     expect(mocks.parseWorkbookImportPreview).not.toHaveBeenCalled();
     expectNoPersistenceCalls();
+  });
+});
+
+describe("workbook import apply action", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireCurrentOwnershipContext.mockResolvedValue(mocks.owner);
+    mocks.repository.findPeriodForOwner.mockResolvedValue(mocks.period);
+    mocks.repository.listActiveCategoriesForOwner.mockResolvedValue([{
+      id: "20000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      type: "INCOME",
+      name: "Salary",
+      sortOrder: 1,
+      archivedAt: null,
+    }]);
+    mocks.repository.createCategoryForOwner.mockResolvedValue({
+      id: "20000000-0000-0000-0000-000000000002",
+      userId: mocks.owner.userId,
+      type: "EXPENSE",
+      name: "Rent",
+      sortOrder: 2,
+      archivedAt: null,
+    });
+    mocks.repository.upsertPlannedBudgetLineForOwner.mockResolvedValue({
+      id: "30000000-0000-0000-0000-000000000001",
+      userId: mocks.owner.userId,
+      periodId: mocks.period.id,
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      categoryName: "Salary",
+      categoryType: "INCOME",
+      plannedAmountMinor: "500000",
+      currencyCode: "COP",
+    });
+    mocks.parseWorkbookImportPreview.mockResolvedValue({
+      rows: [
+        { type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" },
+        { type: "actual-income", rowNumber: 2, description: "Salary", amountMinor: "520000", currencyCode: "COP" },
+        { type: "planned-expense", rowNumber: 2, description: "Rent", amountMinor: "120000", currencyCode: "COP" },
+        { type: "actual-expense", rowNumber: 2, description: "Rent", amountMinor: "119000", currencyCode: "COP" },
+      ],
+      issues: [],
+    });
+  });
+
+  it("re-parses the uploaded workbook and applies only planned rows for the authenticated owner period", async () => {
+    const state = await applyWorkbookImportAction(initialWorkbookImportPreviewState, previewForm());
+
+    expect(state).toEqual({
+      status: "success",
+      message: "Importación aplicada: 2 filas planeadas, 1 categoría creada y 2 líneas planeadas actualizadas.",
+      fieldErrors: {},
+      applyResult: {
+        plannedRowsApplied: 2,
+        categoriesCreated: 1,
+        budgetLinesUpserted: 2,
+      },
+    });
+    expect(mocks.parseWorkbookImportPreview).toHaveBeenCalledWith({
+      workbook: expect.any(Uint8Array),
+      currencyCode: "COP",
+    });
+    expect(mocks.repository.listActiveCategoriesForOwner).toHaveBeenCalledWith(mocks.owner.userId);
+    expect(mocks.repository.createCategoryForOwner).toHaveBeenCalledWith(mocks.owner.userId, {
+      type: "EXPENSE",
+      name: "Rent",
+    });
+    expect(mocks.repository.upsertPlannedBudgetLineForOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.repository.upsertPlannedBudgetLineForOwner).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: mocks.period.id,
+      categoryId: "20000000-0000-0000-0000-000000000001",
+      plannedAmountMinor: "500000",
+      currencyCode: "COP",
+    });
+    expect(mocks.repository.upsertPlannedBudgetLineForOwner).toHaveBeenCalledWith(mocks.owner.userId, {
+      periodId: mocks.period.id,
+      categoryId: "20000000-0000-0000-0000-000000000002",
+      plannedAmountMinor: "120000",
+      currencyCode: "COP",
+    });
+    expect(mocks.repository.createTransactionForOwner).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for unauthenticated and inactive users before owner data access", async () => {
+    mocks.requireCurrentOwnershipContext.mockRejectedValueOnce(new AuthenticationRequiredError());
+    const unauthenticated = await applyWorkbookImportAction(initialWorkbookImportPreviewState, previewForm());
+    mocks.requireCurrentOwnershipContext.mockRejectedValueOnce(new UserNotActiveError());
+    const inactive = await applyWorkbookImportAction(initialWorkbookImportPreviewState, previewForm());
+
+    expect(unauthenticated.status).toBe("error");
+    expect(unauthenticated.message).toBe("Inicia sesión para aplicar importaciones.");
+    expect(inactive.status).toBe("error");
+    expect(inactive.message).toBe("Tu usuario no está activo.");
+    expect(mocks.repository.findPeriodForOwner).not.toHaveBeenCalled();
+    expect(mocks.parseWorkbookImportPreview).not.toHaveBeenCalled();
+    expectNoPersistenceCalls();
+  });
+
+  it("rejects malformed and cross-owner period identifiers before apply parsing", async () => {
+    const malformed = await applyWorkbookImportAction(initialWorkbookImportPreviewState, previewForm({ periodId: "not-a-uuid" }));
+    mocks.repository.findPeriodForOwner.mockResolvedValueOnce(null);
+    const crossOwner = await applyWorkbookImportAction(
+      initialWorkbookImportPreviewState,
+      previewForm({ periodId: "10000000-0000-0000-0000-000000000999" }),
+    );
+
+    expect(malformed.fieldErrors.periodId).toBe("Selecciona un periodo propio válido.");
+    expect(crossOwner.fieldErrors.periodId).toBe("Selecciona un periodo propio válido.");
+    expect(mocks.parseWorkbookImportPreview).not.toHaveBeenCalled();
+    expectNoPersistenceCalls();
+  });
+
+  it.each([
+    ["MALFORMED_WORKBOOK"],
+    ["UNSUPPORTED_SHEET"],
+    ["MISSING_HEADER"],
+    ["UNSUPPORTED_FORMULA"],
+    ["INVALID_MONEY"],
+    ["DUPLICATE_ROW"],
+    ["INCOMPLETE_ROW"],
+    ["UNKNOWN_CURRENCY"],
+    ["UNSUPPORTED_WORKBOOK_FEATURE"],
+  ] as const)("blocks persistence when preview parsing reports %s", async (code) => {
+    mocks.parseWorkbookImportPreview.mockResolvedValueOnce({
+      rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
+      issues: [{ code, rowNumber: 2 }],
+    });
+
+    const state = await applyWorkbookImportAction(initialWorkbookImportPreviewState, previewForm());
+
+    expect(state.status).toBe("error");
+    expect(state.message).toBe("No se aplicó la importación porque la vista previa contiene bloqueos.");
+    expect(mocks.repository.createCategoryForOwner).not.toHaveBeenCalled();
+    expect(mocks.repository.upsertPlannedBudgetLineForOwner).not.toHaveBeenCalled();
+    expect(mocks.repository.createTransactionForOwner).not.toHaveBeenCalled();
+  });
+
+  it("rejects planned rows whose parsed currency does not match the selected period before persistence", async () => {
+    mocks.parseWorkbookImportPreview.mockResolvedValueOnce({
+      rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "USD" }],
+      issues: [],
+    });
+
+    const state = await applyWorkbookImportAction(initialWorkbookImportPreviewState, previewForm());
+
+    expect(state.status).toBe("error");
+    expect(state.message).toBe("La moneda del workbook no coincide con el periodo seleccionado.");
+    expect(mocks.repository.createCategoryForOwner).not.toHaveBeenCalled();
+    expect(mocks.repository.upsertPlannedBudgetLineForOwner).not.toHaveBeenCalled();
+    expect(mocks.repository.createTransactionForOwner).not.toHaveBeenCalled();
   });
 });

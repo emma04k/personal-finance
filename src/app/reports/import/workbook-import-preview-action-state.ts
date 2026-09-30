@@ -1,4 +1,5 @@
 import type { WorkbookImportPreview } from "@/modules/budget/application/workbook-import-preview";
+import type { WorkbookImportApplyResult } from "@/modules/budget/application/workbook-import-apply";
 
 export type WorkbookImportPreviewField = "periodId" | "workbook";
 export type WorkbookImportPreviewState = Readonly<{
@@ -6,6 +7,7 @@ export type WorkbookImportPreviewState = Readonly<{
   message: string;
   fieldErrors: Partial<Record<WorkbookImportPreviewField, string>>;
   preview?: WorkbookImportPreview;
+  applyResult?: WorkbookImportApplyResult;
 }>;
 
 export const initialWorkbookImportPreviewState: WorkbookImportPreviewState = Object.freeze({
