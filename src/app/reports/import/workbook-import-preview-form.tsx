@@ -1,7 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
-import { previewWorkbookImportAction } from "./actions";
+import {
+  applyWorkbookImportAction,
+  previewWorkbookImportAction,
+} from "./actions";
 import { initialWorkbookImportPreviewState } from "./workbook-import-preview-action-state";
 import type {
   WorkbookImportIssue,
@@ -25,6 +28,13 @@ export function WorkbookImportPreviewForm({
     previewWorkbookImportAction,
     initialWorkbookImportPreviewState,
   );
+  const [applyState, applyAction, applyPending] = useActionState(
+    applyWorkbookImportAction,
+    initialWorkbookImportPreviewState,
+  );
+  const canApplyPreview = state.preview
+    ? state.preview.issues.length === 0 && state.preview.rows.some((row) => row.type === "planned-income" || row.type === "planned-expense")
+    : false;
 
   return (
     <div className="reports-panel" aria-labelledby="import-preview-form-heading">
@@ -104,6 +114,42 @@ export function WorkbookImportPreviewForm({
           ) : (
             <p>No se encontraron filas incompletas, ambiguas, duplicadas o no soportadas.</p>
           )}
+
+          {canApplyPreview ? (
+            <form className="reports-period-form" action={applyAction}>
+              <h3>Confirmar importación</h3>
+              <p>
+                Vuelve a seleccionar el mismo workbook para revalidarlo en el servidor. Solo se
+                guardarán filas de Ingreso planeado y Gasto planeado.
+              </p>
+
+              <label htmlFor="apply-import-period-id">Periodo destino</label>
+              <select id="apply-import-period-id" name="periodId" defaultValue={selectedPeriodId}>
+                {periods.map((period) => (
+                  <option key={period.id} value={period.id}>
+                    {period.label} · {period.currencyCode}
+                  </option>
+                ))}
+              </select>
+              {applyState.fieldErrors.periodId ? <p role="alert">{applyState.fieldErrors.periodId}</p> : null}
+
+              <label htmlFor="apply-import-workbook">Archivo workbook .xlsx</label>
+              <input
+                id="apply-import-workbook"
+                name="workbook"
+                type="file"
+                accept=".xlsx"
+                required
+              />
+              {applyState.fieldErrors.workbook ? <p role="alert">{applyState.fieldErrors.workbook}</p> : null}
+
+              <button type="submit" disabled={applyPending}>
+                {applyPending ? "Importando…" : "Confirmar e importar filas planeadas"}
+              </button>
+            </form>
+          ) : null}
+
+          {applyState.message ? <p role={applyState.status === "error" ? "alert" : "status"}>{applyState.message}</p> : null}
         </div>
       ) : null}
     </div>

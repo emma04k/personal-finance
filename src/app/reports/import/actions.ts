@@ -9,6 +9,7 @@ import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/p
 import {
   parseWorkbookImportPreview,
 } from "@/modules/budget/application/workbook-import-preview";
+import { applyPlannedWorkbookImport } from "@/modules/budget/application/workbook-import-apply";
 import { prisma } from "@/lib/prisma";
 import type {
   WorkbookImportPreviewField,
@@ -60,9 +61,59 @@ export async function previewWorkbookImportAction(
 
   return {
     status: "success",
-    message: "Vista previa generada. Revisa las filas antes de importar en una fase futura.",
+    message: "Vista previa generada. Revisa las filas antes de aplicar la importación.",
     fieldErrors: {},
     preview,
+  };
+}
+
+export async function applyWorkbookImportAction(
+  previousState: WorkbookImportPreviewState,
+  formData: FormData,
+): Promise<WorkbookImportPreviewState> {
+  void previousState;
+
+  let owner;
+  try {
+    owner = await requireCurrentOwnershipContext();
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError) {
+      return actionError("Inicia sesión para aplicar importaciones.");
+    }
+    if (error instanceof UserNotActiveError) {
+      return actionError("Tu usuario no está activo.");
+    }
+    throw error;
+  }
+
+  const periodId = stringField(formData, "periodId");
+  if (!canonicalUuid.test(periodId)) {
+    return actionError("Selecciona un periodo propio válido.", { periodId: "Selecciona un periodo propio válido." });
+  }
+
+  const workbookFile = workbookFileField(formData);
+  if (!workbookFile) {
+    return actionError("Sube un archivo .xlsx válido.", { workbook: "Sube un archivo .xlsx válido." });
+  }
+  const workbookError = validateWorkbookFile(workbookFile);
+  if (workbookError) return actionError(workbookError, { workbook: workbookError });
+
+  const repository = new PrismaOwnedPlanningRepository(prisma);
+  const period = await repository.findPeriodForOwner(owner.userId, periodId);
+  if (!period) {
+    return actionError("Selecciona un periodo propio válido.", { periodId: "Selecciona un periodo propio válido." });
+  }
+
+  const workbook = new Uint8Array(await workbookFile.arrayBuffer());
+  const preview = await parseWorkbookImportPreview({ workbook, currencyCode: period.currencyCode });
+  const applyResult = await applyPlannedWorkbookImport({ owner, repository, period, preview });
+  if (!applyResult.ok) return importApplyErrorState(applyResult.error.code);
+
+  return {
+    status: "success",
+    message: appliedMessage(applyResult.value),
+    fieldErrors: {},
+    applyResult: applyResult.value,
   };
 }
 
@@ -101,4 +152,25 @@ function validateWorkbookFile(file: UploadedWorkbookFile) {
     return "El archivo .xlsx debe pesar máximo 2 MB.";
   }
   return null;
+}
+
+function importApplyErrorState(errorCode: "BLOCKING_PREVIEW_ISSUES" | "CURRENCY_MISMATCH") {
+  switch (errorCode) {
+    case "BLOCKING_PREVIEW_ISSUES":
+      return actionError("No se aplicó la importación porque la vista previa contiene bloqueos.", {
+        workbook: "Corrige las filas bloqueadas antes de aplicar.",
+      });
+    case "CURRENCY_MISMATCH":
+      return actionError("La moneda del workbook no coincide con el periodo seleccionado.", {
+        workbook: "Sube un workbook compatible con la moneda del periodo.",
+      });
+  }
+}
+
+function appliedMessage(result: {
+  readonly plannedRowsApplied: number;
+  readonly categoriesCreated: number;
+  readonly budgetLinesUpserted: number;
+}) {
+  return `Importación aplicada: ${result.plannedRowsApplied} filas planeadas, ${result.categoriesCreated} categoría${result.categoriesCreated === 1 ? "" : "s"} creada${result.categoriesCreated === 1 ? "" : "s"} y ${result.budgetLinesUpserted} líneas planeadas actualizadas.`;
 }
