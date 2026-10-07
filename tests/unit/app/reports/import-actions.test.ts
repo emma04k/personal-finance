@@ -37,11 +37,34 @@ const mocks = vi.hoisted(() => {
     upsertPlannedBudgetLineForOwner: vi.fn(),
     createTransactionForOwner: vi.fn(),
   };
+  const debtRepository = {
+    listActiveDebtAccountsForOwner: vi.fn(async () => [{
+      id: "40000000-0000-0000-0000-000000000001",
+      userId: owner.userId,
+      name: "Synthetic credit card",
+      creditorName: "Synthetic Bank",
+      currentBalanceMinor: "900000",
+      defaultRequiredPaymentMinor: "100000",
+      currencyCode: "COP",
+      status: "ACTIVE" as const,
+    }]),
+    updateDebtAccountDefaultPaymentForOwner: vi.fn(async () => ({
+      id: "40000000-0000-0000-0000-000000000001",
+      userId: owner.userId,
+      name: "Synthetic credit card",
+      creditorName: "Synthetic Bank",
+      currentBalanceMinor: "900000",
+      defaultRequiredPaymentMinor: "1400000",
+      currencyCode: "COP",
+      status: "ACTIVE" as const,
+    })),
+  };
 
   return {
     owner,
     period,
     repository,
+    debtRepository,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
     parseWorkbookImportPreview: vi.fn(async (): Promise<WorkbookImportPreview> => ({
       rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
@@ -57,6 +80,12 @@ vi.mock("@/modules/auth/application/current-ownership-context", () => ({
 vi.mock("@/modules/budget/infrastructure/prisma-owned-planning-repository", () => ({
   PrismaOwnedPlanningRepository: vi.fn(function PrismaOwnedPlanningRepository() {
     return mocks.repository;
+  }),
+}));
+
+vi.mock("@/modules/debt/infrastructure/prisma-owned-debt-account-repository", () => ({
+  PrismaOwnedDebtAccountRepository: vi.fn(function PrismaOwnedDebtAccountRepository() {
+    return mocks.debtRepository;
   }),
 }));
 
@@ -236,6 +265,7 @@ describe("workbook import apply action", () => {
         plannedRowsApplied: 2,
         categoriesCreated: 1,
         budgetLinesUpserted: 2,
+        debtDefaultPaymentsUpdated: 0,
       },
     });
     expect(mocks.parseWorkbookImportPreview).toHaveBeenCalledWith({
@@ -260,6 +290,71 @@ describe("workbook import apply action", () => {
       plannedAmountMinor: "120000",
       currencyCode: "COP",
     });
+    expect(mocks.repository.createTransactionForOwner).not.toHaveBeenCalled();
+  });
+
+  it("re-parses debt diagnostic candidates server-side and updates selected debt account defaults", async () => {
+    mocks.parseWorkbookImportPreview.mockResolvedValueOnce({
+      rows: [],
+      debtDiagnostic: {
+        netIncome: null,
+        paymentCandidates: [{ rowNumber: 6, label: "CUOTA TC", amountMinor: "1400000", currencyCode: "COP" }],
+      },
+      issues: [],
+    });
+    const formData = previewForm();
+    formData.set("debtDefaultAccountId:6", "40000000-0000-0000-0000-000000000001");
+
+    const state = await applyWorkbookImportAction(initialWorkbookImportPreviewState, formData);
+
+    expect(state).toEqual({
+      status: "success",
+      message: "Importación aplicada: 0 filas planeadas, 0 categorías creadas y 0 líneas planeadas actualizadas y 1 pago requerido de deuda actualizado.",
+      fieldErrors: {},
+      applyResult: {
+        plannedRowsApplied: 0,
+        categoriesCreated: 0,
+        budgetLinesUpserted: 0,
+        debtDefaultPaymentsUpdated: 1,
+      },
+    });
+    expect(mocks.parseWorkbookImportPreview).toHaveBeenCalledWith({
+      workbook: expect.any(Uint8Array),
+      currencyCode: "COP",
+    });
+    expect(mocks.debtRepository.listActiveDebtAccountsForOwner).toHaveBeenCalledWith(mocks.owner.userId);
+    expect(mocks.debtRepository.updateDebtAccountDefaultPaymentForOwner).toHaveBeenCalledWith(
+      mocks.owner.userId,
+      "40000000-0000-0000-0000-000000000001",
+      "1400000",
+    );
+    expect(mocks.repository.createTransactionForOwner).not.toHaveBeenCalled();
+  });
+
+  it("treats applying no selected debt diagnostic candidates as a clear no-op", async () => {
+    mocks.parseWorkbookImportPreview.mockResolvedValueOnce({
+      rows: [],
+      debtDiagnostic: {
+        netIncome: null,
+        paymentCandidates: [{ rowNumber: 6, label: "CUOTA TC", amountMinor: "1400000", currencyCode: "COP" }],
+      },
+      issues: [],
+    });
+
+    const state = await applyWorkbookImportAction(initialWorkbookImportPreviewState, previewForm());
+
+    expect(state).toEqual({
+      status: "success",
+      message: "Importación aplicada: no hubo filas planeadas ni pagos de deuda seleccionados.",
+      fieldErrors: {},
+      applyResult: {
+        plannedRowsApplied: 0,
+        categoriesCreated: 0,
+        budgetLinesUpserted: 0,
+        debtDefaultPaymentsUpdated: 0,
+      },
+    });
+    expect(mocks.debtRepository.updateDebtAccountDefaultPaymentForOwner).not.toHaveBeenCalled();
     expect(mocks.repository.createTransactionForOwner).not.toHaveBeenCalled();
   });
 

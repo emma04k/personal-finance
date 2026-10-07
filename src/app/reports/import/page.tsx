@@ -10,14 +10,24 @@ import {
   selectDisplayedBudgetPeriod,
 } from "@/modules/budget/application/default-budget-period";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
+import { PrismaOwnedDebtAccountRepository } from "@/modules/debt/infrastructure/prisma-owned-debt-account-repository";
 import { prisma } from "@/lib/prisma";
 import { WorkbookImportPreviewForm } from "./workbook-import-preview-form";
+
+type ActiveDebtAccountOption = Readonly<{
+  id: string;
+  name: string;
+  creditorName: string | null;
+  currencyCode: string;
+  defaultRequiredPaymentMinor: string;
+}>;
 
 type ReportsImportPageState =
   | Readonly<{
       status: "authenticated";
       periods: readonly OwnedPeriod[];
       selectedPeriod: OwnedPeriod | undefined;
+      activeDebtAccounts: readonly ActiveDebtAccountOption[];
     }>
   | Readonly<{ status: "authentication-required" }>;
 
@@ -41,7 +51,7 @@ export default async function ReportsImportPage() {
     );
   }
 
-  const { periods, selectedPeriod } = state;
+  const { periods, selectedPeriod, activeDebtAccounts } = state;
   const periodOptions = periods.map((period) => ({
     id: period.id,
     label: formatPeriodLabel(period.monthStart),
@@ -62,6 +72,7 @@ export default async function ReportsImportPage() {
           <WorkbookImportPreviewForm
             periods={periodOptions}
             selectedPeriodId={selectedPeriod.id}
+            activeDebtAccounts={activeDebtAccounts}
           />
         ) : (
           <div className="empty-state" role="status">
@@ -80,14 +91,29 @@ async function loadReportsImportPageState(): Promise<ReportsImportPageState> {
   try {
     const owner = await requireCurrentOwnershipContext();
     const repository = new PrismaOwnedPlanningRepository(prisma);
-    const periods = await repository.listPeriodsForOwner(owner.userId);
+    const debtRepository = new PrismaOwnedDebtAccountRepository(prisma);
+    const [periods, activeDebtAccounts] = await Promise.all([
+      repository.listPeriodsForOwner(owner.userId),
+      debtRepository.listActiveDebtAccountsForOwner(owner.userId),
+    ]);
     const selectedPeriod = selectDisplayedBudgetPeriod({
       periods,
       now: new Date(),
       timeZone: DEFAULT_BUDGET_TIME_ZONE,
     });
 
-    return { status: "authenticated", periods, selectedPeriod };
+    return {
+      status: "authenticated",
+      periods,
+      selectedPeriod,
+      activeDebtAccounts: activeDebtAccounts.map((account) => ({
+        id: account.id,
+        name: account.name,
+        creditorName: account.creditorName,
+        currencyCode: account.currencyCode,
+        defaultRequiredPaymentMinor: account.defaultRequiredPaymentMinor,
+      })),
+    };
   } catch (error) {
     if (
       error instanceof AuthenticationRequiredError ||

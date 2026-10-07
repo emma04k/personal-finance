@@ -6,10 +6,11 @@ import {
 } from "@/modules/auth/application/ownership-context";
 import { requireCurrentOwnershipContext } from "@/modules/auth/application/current-ownership-context";
 import { PrismaOwnedPlanningRepository } from "@/modules/budget/infrastructure/prisma-owned-planning-repository";
+import { PrismaOwnedDebtAccountRepository } from "@/modules/debt/infrastructure/prisma-owned-debt-account-repository";
 import {
   parseWorkbookImportPreview,
 } from "@/modules/budget/application/workbook-import-preview";
-import { applyPlannedWorkbookImport } from "@/modules/budget/application/workbook-import-apply";
+import { applyWorkbookImport } from "@/modules/budget/application/workbook-import-apply";
 import { prisma } from "@/lib/prisma";
 import type {
   WorkbookImportPreviewField,
@@ -106,7 +107,14 @@ export async function applyWorkbookImportAction(
 
   const workbook = new Uint8Array(await workbookFile.arrayBuffer());
   const preview = await parseWorkbookImportPreview({ workbook, currencyCode: period.currencyCode });
-  const applyResult = await applyPlannedWorkbookImport({ owner, repository, period, preview });
+  const applyResult = await applyWorkbookImport({
+    owner,
+    planningRepository: repository,
+    debtRepository: new PrismaOwnedDebtAccountRepository(prisma),
+    period,
+    preview,
+    debtDefaultSelections: debtDefaultSelections(formData),
+  });
   if (!applyResult.ok) return importApplyErrorState(applyResult.error.code);
 
   return {
@@ -154,7 +162,7 @@ function validateWorkbookFile(file: UploadedWorkbookFile) {
   return null;
 }
 
-function importApplyErrorState(errorCode: "BLOCKING_PREVIEW_ISSUES" | "CURRENCY_MISMATCH") {
+function importApplyErrorState(errorCode: "BLOCKING_PREVIEW_ISSUES" | "CURRENCY_MISMATCH" | "INVALID_DEBT_ACCOUNT_SELECTION") {
   switch (errorCode) {
     case "BLOCKING_PREVIEW_ISSUES":
       return actionError("No se aplicó la importación porque la vista previa contiene bloqueos.", {
@@ -164,13 +172,41 @@ function importApplyErrorState(errorCode: "BLOCKING_PREVIEW_ISSUES" | "CURRENCY_
       return actionError("La moneda del workbook no coincide con el periodo seleccionado.", {
         workbook: "Sube un workbook compatible con la moneda del periodo.",
       });
+    case "INVALID_DEBT_ACCOUNT_SELECTION":
+      return actionError("Selecciona cuentas de deuda activas propias para los pagos elegidos.", {
+        debtAccountId: "Selecciona cuentas de deuda activas propias para los pagos elegidos.",
+      });
   }
+}
+
+function debtDefaultSelections(formData: FormData) {
+  const selections: { candidateRowNumber: number; debtAccountId: string }[] = [];
+  for (const [field, value] of formData.entries()) {
+    const match = /^debtDefaultAccountId:([1-9][0-9]*)$/.exec(field);
+    if (!match || typeof value !== "string") continue;
+    const debtAccountId = value.trim();
+    if (debtAccountId.length === 0) continue;
+    selections.push({ candidateRowNumber: Number.parseInt(match[1], 10), debtAccountId });
+  }
+  return selections;
 }
 
 function appliedMessage(result: {
   readonly plannedRowsApplied: number;
   readonly categoriesCreated: number;
   readonly budgetLinesUpserted: number;
+  readonly debtDefaultPaymentsUpdated: number;
 }) {
-  return `Importación aplicada: ${result.plannedRowsApplied} filas planeadas, ${result.categoriesCreated} categoría${result.categoriesCreated === 1 ? "" : "s"} creada${result.categoriesCreated === 1 ? "" : "s"} y ${result.budgetLinesUpserted} líneas planeadas actualizadas.`;
+  if (
+    result.plannedRowsApplied === 0
+    && result.budgetLinesUpserted === 0
+    && result.debtDefaultPaymentsUpdated === 0
+  ) {
+    return "Importación aplicada: no hubo filas planeadas ni pagos de deuda seleccionados.";
+  }
+  const plannedMessage = `Importación aplicada: ${result.plannedRowsApplied} filas planeadas, ${result.categoriesCreated} categoría${result.categoriesCreated === 1 ? "" : "s"} creada${result.categoriesCreated === 1 ? "" : "s"} y ${result.budgetLinesUpserted} líneas planeadas actualizadas`;
+  if ("debtDefaultPaymentsUpdated" in result && result.debtDefaultPaymentsUpdated > 0) {
+    return `${plannedMessage} y ${result.debtDefaultPaymentsUpdated} pago${result.debtDefaultPaymentsUpdated === 1 ? "" : "s"} requerido${result.debtDefaultPaymentsUpdated === 1 ? "" : "s"} de deuda actualizado${result.debtDefaultPaymentsUpdated === 1 ? "" : "s"}.`;
+  }
+  return `${plannedMessage}.`;
 }

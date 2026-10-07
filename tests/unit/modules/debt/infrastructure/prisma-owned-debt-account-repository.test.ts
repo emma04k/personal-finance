@@ -187,6 +187,49 @@ describe("Prisma owner-scoped debt account repository", () => {
     expect(findFirst).not.toHaveBeenCalled();
   });
 
+  it("updates only the default required payment for an active owner-scoped debt account", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "10000000-0000-0000-0000-000000000001",
+      userId: ownerUserId,
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: BigInt("1250000"),
+      defaultRequiredPaymentMinor: BigInt("25000"),
+      currencyCode: "USD",
+      status: "ACTIVE" as const,
+    });
+    const repository = new PrismaOwnedDebtAccountRepository({
+      debtAccount: { findMany: vi.fn(), create: vi.fn(), updateMany, findFirst },
+    });
+
+    await expect(repository.updateDebtAccountDefaultPaymentForOwner(
+      ownerUserId,
+      "10000000-0000-0000-0000-000000000001",
+      "25000",
+    )).resolves.toEqual({
+      id: "10000000-0000-0000-0000-000000000001",
+      userId: ownerUserId,
+      name: "Student loan",
+      creditorName: "Federal Servicer",
+      currentBalanceMinor: "1250000",
+      defaultRequiredPaymentMinor: "25000",
+      currencyCode: "USD",
+      status: "ACTIVE",
+    });
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "10000000-0000-0000-0000-000000000001",
+        userId: ownerUserId,
+        status: "ACTIVE",
+      },
+      data: {
+        defaultRequiredPaymentMinor: BigInt("25000"),
+      },
+    });
+  });
+
   it("archives active debt accounts through an owner-and-account-scoped status transition", async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const findFirst = vi.fn().mockResolvedValue({
