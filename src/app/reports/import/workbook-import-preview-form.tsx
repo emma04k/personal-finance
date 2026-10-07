@@ -17,12 +17,22 @@ type PeriodOption = Readonly<{
   currencyCode: string;
 }>;
 
+type ActiveDebtAccountOption = Readonly<{
+  id: string;
+  name: string;
+  creditorName: string | null;
+  currencyCode: string;
+  defaultRequiredPaymentMinor: string;
+}>;
+
 export function WorkbookImportPreviewForm({
   periods,
   selectedPeriodId,
+  activeDebtAccounts,
 }: {
   readonly periods: readonly PeriodOption[];
   readonly selectedPeriodId: string;
+  readonly activeDebtAccounts: readonly ActiveDebtAccountOption[];
 }) {
   const [state, action, pending] = useActionState(
     previewWorkbookImportAction,
@@ -33,7 +43,9 @@ export function WorkbookImportPreviewForm({
     initialWorkbookImportPreviewState,
   );
   const canApplyPreview = state.preview
-    ? !state.preview.issues.some(isBlockingPlannedImportIssue) && state.preview.rows.some((row) => row.type === "planned-income" || row.type === "planned-expense")
+    ? !state.preview.issues.some(isBlockingPlannedImportIssue)
+      && (state.preview.rows.some((row) => row.type === "planned-income" || row.type === "planned-expense")
+        || (state.preview.debtDiagnostic?.paymentCandidates.length ?? 0) > 0)
     : false;
 
   return (
@@ -161,9 +173,39 @@ export function WorkbookImportPreviewForm({
             <form className="reports-period-form" action={applyAction}>
               <h3>Confirmar importación</h3>
               <p>
-                Vuelve a seleccionar el mismo workbook para revalidarlo en el servidor. Solo se
-                guardarán filas de Ingreso planeado y Gasto planeado.
+                Vuelve a seleccionar el mismo workbook para revalidarlo en el servidor. Se
+                guardarán filas planeadas y, si eliges una cuenta activa, pagos requeridos por defecto de deuda.
               </p>
+
+              {state.preview.debtDiagnostic?.paymentCandidates.length ? (
+                <fieldset>
+                  <legend>Cuenta de deuda activa por candidato</legend>
+                  <p>
+                    Opcional: selecciona una cuenta activa propia para actualizar solo su pago mensual requerido por defecto.
+                  </p>
+                  {state.preview.debtDiagnostic.paymentCandidates.map((candidate) => (
+                    <div key={`debt-default-${candidate.rowNumber}-${candidate.label}`}>
+                      <label htmlFor={`debt-default-account-${candidate.rowNumber}`}>
+                        Fila {candidate.rowNumber}: {candidate.label} · {candidate.amountMinor} {candidate.currencyCode}
+                      </label>
+                      <select
+                        id={`debt-default-account-${candidate.rowNumber}`}
+                        name={`debtDefaultAccountId:${candidate.rowNumber}`}
+                        defaultValue=""
+                      >
+                        <option value="">No aplicar este candidato</option>
+                        {activeDebtAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {debtAccountOptionLabel(account)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  {activeDebtAccounts.length === 0 ? <p>No hay cuentas de deuda activas disponibles para aplicar candidatos.</p> : null}
+                  {applyState.fieldErrors.debtAccountId ? <p role="alert">{applyState.fieldErrors.debtAccountId}</p> : null}
+                </fieldset>
+              ) : null}
 
               <label htmlFor="apply-import-period-id">Periodo destino</label>
               <select id="apply-import-period-id" name="periodId" defaultValue={selectedPeriodId}>
@@ -226,6 +268,11 @@ function isBlockingPlannedImportIssue(issue: WorkbookImportIssue) {
   if (issue.type === "debt-net-income" || issue.type === "debt-payment-candidate") return false;
   if (issue.sheetName === "DIAGNOSTICO DE DEUDA") return false;
   return true;
+}
+
+function debtAccountOptionLabel(account: ActiveDebtAccountOption) {
+  const creditor = account.creditorName ? ` · ${account.creditorName}` : "";
+  return `${account.name}${creditor} · actual ${account.defaultRequiredPaymentMinor} ${account.currencyCode}`;
 }
 
 function issueLabel(issue: WorkbookImportIssue) {

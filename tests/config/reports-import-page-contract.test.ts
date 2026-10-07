@@ -49,7 +49,25 @@ describe("workbook import preview page contract", () => {
     expect(form).toMatch(/applyWorkbookImportAction/);
     expect(form).toMatch(/Confirmar e importar filas planeadas/);
     expect(form).toMatch(/Vuelve a seleccionar el mismo workbook/);
+    expect(form).toMatch(/activeDebtAccounts/);
+    expect(form).toMatch(/debtDefaultAccountId:\$\{candidate\.rowNumber\}/);
+    expect(form).toMatch(/No aplicar este candidato/);
+    expect(form).toMatch(/Cuenta de deuda activa/);
     expect(`${page}\n${form}`).not.toMatch(/dangerouslySetInnerHTML|eval\(|localStorage|sessionStorage|document\.cookie/i);
+  });
+
+  it("loads a narrow active debt account list for diagnostic apply controls", () => {
+    const page = source(importPagePath);
+
+    expect(page).toMatch(/new PrismaOwnedDebtAccountRepository\(prisma\)/);
+    expect(page).toMatch(/listActiveDebtAccountsForOwner\(owner\.userId\)/);
+    expect(page).toMatch(/activeDebtAccounts:\s*activeDebtAccounts\.map\(\(account\) => \(\{/);
+    expect(page).toMatch(/id:\s*account\.id/);
+    expect(page).toMatch(/name:\s*account\.name/);
+    expect(page).toMatch(/creditorName:\s*account\.creditorName/);
+    expect(page).toMatch(/currencyCode:\s*account\.currencyCode/);
+    expect(page).toMatch(/defaultRequiredPaymentMinor:\s*account\.defaultRequiredPaymentMinor/);
+    expect(page).not.toMatch(/currentBalanceMinor:\s*account\.currentBalanceMinor|userId:\s*account\.userId/);
   });
 
   it("links the import preview from the reports page", () => {
@@ -68,6 +86,21 @@ describe("workbook import preview page contract", () => {
     expect(actions).toMatch(/canonicalUuid\.test\(periodId\)/);
     expect(actions).toMatch(/findPeriodForOwner\(owner\.userId, periodId\)/);
     expect(actions).toMatch(/parseWorkbookImportPreview\(\{[\s\S]*currencyCode:\s*period\.currencyCode[\s\S]*\}\)/);
-    expect(actions).not.toMatch(/createCategoryForOwner|upsertPlannedBudgetLineForOwner|createTransactionForOwner|update[A-Za-z]+ForOwner|delete[A-Za-z]+ForOwner|revalidatePath/);
+    const previewActionSource = actions.slice(
+      actions.indexOf("export async function previewWorkbookImportAction"),
+      actions.indexOf("export async function applyWorkbookImportAction"),
+    );
+    expect(previewActionSource).not.toMatch(/createCategoryForOwner|upsertPlannedBudgetLineForOwner|createTransactionForOwner|update[A-Za-z]+ForOwner|delete[A-Za-z]+ForOwner|revalidatePath/);
+  });
+
+  it("keeps apply action server-authorized and re-parses selected debt defaults", () => {
+    const actions = source(importActionsPath);
+
+    expect(actions).toMatch(/requireCurrentOwnershipContext\(\)/);
+    expect(actions).toMatch(/findPeriodForOwner\(owner\.userId, periodId\)/);
+    expect(actions).toMatch(/parseWorkbookImportPreview\(\{[\s\S]*currencyCode:\s*period\.currencyCode[\s\S]*\}\)/);
+    expect(actions).toMatch(/debtDefaultSelections\(formData\)/);
+    expect(actions).toMatch(/debtDefaultAccountId:\(\[1-9\]\[0-9\]\*\)/);
+    expect(actions).not.toMatch(/createDebtPayment|createTransactionForOwner\(|occurredOn|paidOn|synthetic/i);
   });
 });

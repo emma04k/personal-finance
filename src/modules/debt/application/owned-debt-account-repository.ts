@@ -32,6 +32,11 @@ export type OwnedDebtAccountRepository = {
     debtAccountId: string,
     input: UpdateDebtAccountForOwnerInput,
   ) => Promise<OwnedDebtAccount | null>;
+  readonly updateDebtAccountDefaultPaymentForOwner: (
+    ownerUserId: string,
+    debtAccountId: string,
+    defaultRequiredPaymentMinor: string,
+  ) => Promise<OwnedDebtAccount | null>;
   readonly archiveDebtAccountForOwner: (
     ownerUserId: string,
     debtAccountId: string,
@@ -86,6 +91,24 @@ export class InMemoryOwnedDebtAccountRepository implements OwnedDebtAccountRepos
       currentBalanceMinor: input.currentBalanceMinor,
       defaultRequiredPaymentMinor: input.defaultRequiredPaymentMinor,
       currencyCode: input.currencyCode,
+    };
+    this.#accounts[accountIndex] = updatedAccount;
+    return updatedAccount;
+  }
+
+  async updateDebtAccountDefaultPaymentForOwner(
+    ownerUserId: string,
+    debtAccountId: string,
+    defaultRequiredPaymentMinor: string,
+  ) {
+    const accountIndex = this.#accounts.findIndex(
+      (account) => account.id === debtAccountId && account.userId === ownerUserId && account.status === "ACTIVE",
+    );
+    if (accountIndex === -1) return null;
+
+    const updatedAccount: OwnedDebtAccount = {
+      ...this.#accounts[accountIndex],
+      defaultRequiredPaymentMinor,
     };
     this.#accounts[accountIndex] = updatedAccount;
     return updatedAccount;

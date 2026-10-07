@@ -96,6 +96,29 @@ export class PrismaOwnedDebtAccountRepository implements OwnedDebtAccountReposit
     return record ? toOwnedDebtAccount(record) : null;
   }
 
+  async updateDebtAccountDefaultPaymentForOwner(
+    ownerUserId: string,
+    debtAccountId: string,
+    defaultRequiredPaymentMinor: string,
+  ) {
+    const where = { id: debtAccountId, userId: ownerUserId, status: "ACTIVE" };
+    const updateResult = await updateManyDebtAccounts(this.db.debtAccount, {
+      where,
+      data: {
+        defaultRequiredPaymentMinor: BigInt(defaultRequiredPaymentMinor),
+      },
+    });
+
+    if (updateResult.count === 0) return null;
+
+    const record = await findFirstDebtAccount(this.db.debtAccount, {
+      select: debtAccountSelect,
+      where,
+    });
+
+    return record ? toOwnedDebtAccount(record) : null;
+  }
+
   async archiveDebtAccountForOwner(ownerUserId: string, debtAccountId: string) {
     const activeWhere = { id: debtAccountId, userId: ownerUserId, status: "ACTIVE" };
     const updateResult = await updateManyDebtAccounts(this.db.debtAccount, {
