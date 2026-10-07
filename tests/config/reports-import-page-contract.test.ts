@@ -42,6 +42,10 @@ describe("workbook import preview page contract", () => {
     expect(form).toMatch(/actual-income|Ingreso real/);
     expect(form).toMatch(/planned-expense|Gasto planeado/);
     expect(form).toMatch(/actual-expense|Gasto real/);
+    expect(form).toMatch(/Diagnóstico de deuda/);
+    expect(form).toMatch(/Ingreso neto/);
+    expect(form).toMatch(/Candidatos de pago de deuda/);
+    expect(form).toMatch(/isBlockingPlannedImportIssue/);
     expect(form).toMatch(/applyWorkbookImportAction/);
     expect(form).toMatch(/Confirmar e importar filas planeadas/);
     expect(form).toMatch(/Vuelve a seleccionar el mismo workbook/);
