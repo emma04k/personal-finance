@@ -7,6 +7,7 @@ import {
   type OwnedPlanningRepository,
 } from "./owned-planning-repository";
 import type {
+  WorkbookImportIssue,
   WorkbookImportPreview,
   WorkbookImportPreviewRow,
 } from "./workbook-import-preview";
@@ -38,7 +39,7 @@ export async function applyPlannedWorkbookImport({
   readonly period: OwnedPeriod;
   readonly preview: WorkbookImportPreview;
 }): Promise<Result<WorkbookImportApplyResult, WorkbookImportApplyError>> {
-  if (preview.issues.length > 0) {
+  if (preview.issues.some(isBlockingPlannedImportIssue)) {
     return err({ code: "BLOCKING_PREVIEW_ISSUES", field: "workbook" });
   }
 
@@ -81,6 +82,12 @@ export async function applyPlannedWorkbookImport({
 
 function isPlannedRow(row: WorkbookImportPreviewRow) {
   return row.type === "planned-income" || row.type === "planned-expense";
+}
+
+function isBlockingPlannedImportIssue(issue: WorkbookImportIssue) {
+  if (issue.type === "debt-net-income" || issue.type === "debt-payment-candidate") return false;
+  if (issue.sheetName === "DIAGNOSTICO DE DEUDA") return false;
+  return true;
 }
 
 function categoryTypeForRow(row: WorkbookImportPreviewRow): "INCOME" | "EXPENSE" {

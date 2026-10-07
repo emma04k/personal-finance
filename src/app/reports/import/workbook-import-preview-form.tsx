@@ -33,7 +33,7 @@ export function WorkbookImportPreviewForm({
     initialWorkbookImportPreviewState,
   );
   const canApplyPreview = state.preview
-    ? state.preview.issues.length === 0 && state.preview.rows.some((row) => row.type === "planned-income" || row.type === "planned-expense")
+    ? !state.preview.issues.some(isBlockingPlannedImportIssue) && state.preview.rows.some((row) => row.type === "planned-income" || row.type === "planned-expense")
     : false;
 
   return (
@@ -42,8 +42,8 @@ export function WorkbookImportPreviewForm({
         <p className="eyebrow">Previsualizar importación</p>
         <h2 id="import-preview-form-heading">Workbook Presupuesto-EDOG.xlsx</h2>
         <p>
-          Sube un archivo .xlsx con la hoja Formato Presupuesto. Esta fase solo muestra
-          Ingreso planeado, Ingreso real, Gasto planeado y Gasto real; no guarda cambios.
+          Sube un archivo .xlsx con las hojas Formato Presupuesto y DIAGNOSTICO DE DEUDA.
+          Esta fase muestra ingresos, gastos y diagnóstico de deuda como vista previa; no guarda cambios.
         </p>
       </div>
 
@@ -103,6 +103,48 @@ export function WorkbookImportPreviewForm({
           ) : (
             <p>No hay filas completas para previsualizar.</p>
           )}
+
+          {state.preview.debtDiagnostic ? (
+            <section aria-labelledby="debt-diagnostic-preview-heading">
+              <h3 id="debt-diagnostic-preview-heading">Diagnóstico de deuda</h3>
+              <dl>
+                <div>
+                  <dt>Ingreso neto</dt>
+                  <dd>
+                    {state.preview.debtDiagnostic.netIncome
+                      ? `${state.preview.debtDiagnostic.netIncome.amountMinor} ${state.preview.debtDiagnostic.netIncome.currencyCode}`
+                      : "No disponible"}
+                  </dd>
+                </div>
+              </dl>
+
+              <h4>Candidatos de pago de deuda</h4>
+              {state.preview.debtDiagnostic.paymentCandidates.length > 0 ? (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fila</th>
+                      <th>Concepto</th>
+                      <th>Monto menor</th>
+                      <th>Moneda</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.preview.debtDiagnostic.paymentCandidates.map((candidate) => (
+                      <tr key={`${candidate.rowNumber}-${candidate.label}`}>
+                        <td>{candidate.rowNumber}</td>
+                        <td>{candidate.label}</td>
+                        <td>{candidate.amountMinor}</td>
+                        <td>{candidate.currencyCode}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p>No hay pagos de deuda completos para previsualizar.</p>
+              )}
+            </section>
+          ) : null}
 
           <h3>Filas marcadas</h3>
           {state.preview.issues.length > 0 ? (
@@ -169,9 +211,26 @@ function previewTypeLabel(type: WorkbookImportPreviewRowType) {
   }
 }
 
+function issueTypeLabel(type: NonNullable<WorkbookImportIssue["type"]>) {
+  switch (type) {
+    case "debt-net-income":
+      return "Ingreso neto";
+    case "debt-payment-candidate":
+      return "Pago de deuda";
+    default:
+      return previewTypeLabel(type);
+  }
+}
+
+function isBlockingPlannedImportIssue(issue: WorkbookImportIssue) {
+  if (issue.type === "debt-net-income" || issue.type === "debt-payment-candidate") return false;
+  if (issue.sheetName === "DIAGNOSTICO DE DEUDA") return false;
+  return true;
+}
+
 function issueLabel(issue: WorkbookImportIssue) {
   const row = issue.rowNumber ? `Fila ${issue.rowNumber}: ` : "";
-  const type = issue.type ? `${previewTypeLabel(issue.type)} — ` : "";
+  const type = issue.type ? `${issueTypeLabel(issue.type)} — ` : "";
   switch (issue.code) {
     case "MALFORMED_WORKBOOK":
       return "El archivo .xlsx está malformado o no se puede leer.";

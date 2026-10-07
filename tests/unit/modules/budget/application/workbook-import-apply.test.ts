@@ -89,4 +89,35 @@ describe("planned workbook import apply", () => {
     ]));
     expect(await repository.listTransactionsForOwnerPeriod(owner.userId, period.id)).toEqual([]);
   });
+
+  it("applies planned rows when the preview has debt-diagnostic-only issues", async () => {
+    const repository = new InMemoryOwnedPlanningRepository({
+      periods: [period],
+      categories: [existingIncomeCategory],
+      budgetLines: [],
+      transactions: [],
+    });
+
+    const result = await applyPlannedWorkbookImport({
+      owner,
+      repository,
+      period,
+      preview: preview(
+        [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
+        [{ code: "INVALID_MONEY", rowNumber: 5, type: "debt-payment-candidate" }],
+      ),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        plannedRowsApplied: 1,
+        categoriesCreated: 0,
+        budgetLinesUpserted: 1,
+      },
+    });
+    expect(await repository.listPlannedBudgetLinesForOwnerPeriod(owner.userId, period.id)).toEqual([
+      expect.objectContaining({ categoryId: existingIncomeCategory.id, plannedAmountMinor: "500000", currencyCode: "COP" }),
+    ]);
+  });
 });

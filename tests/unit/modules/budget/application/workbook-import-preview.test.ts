@@ -8,6 +8,21 @@ async function buildWorkbook(rows: readonly (readonly Cell[])[], sheetName = "Fo
   return buildWorkbookWithSheetXml(buildSheet(rows), sheetName);
 }
 
+async function buildWorkbookWithDebtDiagnosticSheet(debtRows: readonly (readonly Cell[])[]) {
+  return buildWorkbookWithDebtDiagnosticSheetXml(buildSheet(debtRows));
+}
+
+async function buildWorkbookWithDebtDiagnosticSheetXml(debtSheetXml: string) {
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`);
+  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  zip.file("xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>`);
+  zip.file("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Formato Presupuesto" sheetId="1" r:id="rId1"/><sheet name="DIAGNOSTICO DE DEUDA" sheetId="2" r:id="rId2"/></sheets></workbook>`);
+  zip.file("xl/worksheets/sheet1.xml", buildSheet([header]));
+  zip.file("xl/worksheets/sheet2.xml", debtSheetXml);
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
 async function buildWorkbookWithSheetXml(sheetXml: string, sheetName = "Formato Presupuesto") {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`);
@@ -178,5 +193,157 @@ describe("workbook import preview parser", () => {
 
     expect(preview.rows).toEqual([]);
     expect(preview.issues).toContainEqual({ code: "UNKNOWN_CURRENCY", currencyCode: "EUR" });
+  });
+
+  it("previews debt diagnostic net income and payment candidates with selected-period currency", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheet([
+      [null, null, null, null],
+      [null, null, "INGRESO NETO", "5600000"],
+      [null, null, null, null],
+      [null, null, null, null, null, "FORMULA", { formula: "D10*100%/D2", cached: "0.35" }],
+      [null, null, "CUOTA LIBRANZA", "0"],
+      [null, null, "CUOTA TC", "1400000"],
+      [null, null, "CUOTA VEHICULO", "564000"],
+      [null, null, "HIPOTECARIO", null],
+      [null, null, "OTROS FINANCIEROS", null],
+      [null, null, "TOTAL", { formula: "SUM(D5:D9)", cached: "1964000" }],
+    ]);
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toEqual({
+      netIncome: { rowNumber: 2, label: "INGRESO NETO", amountMinor: "5600000", currencyCode: "COP" },
+      paymentCandidates: [
+        { rowNumber: 5, label: "CUOTA LIBRANZA", amountMinor: "0", currencyCode: "COP" },
+        { rowNumber: 6, label: "CUOTA TC", amountMinor: "1400000", currencyCode: "COP" },
+        { rowNumber: 7, label: "CUOTA VEHICULO", amountMinor: "564000", currencyCode: "COP" },
+      ],
+    });
+    expect(preview.issues).toEqual([]);
+  });
+
+  it("ignores supported debt diagnostic labels and amounts outside canonical input cells", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheet([
+      [null, null, "INGRESO NETO", "5600000"],
+      [null, null, null, null, "CUOTA TC", "1400000"],
+      [null, null, null, null],
+      [null, null, "CUOTA VEHICULO", "564000"],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, "OTROS FINANCIEROS", "100000"],
+    ]);
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toBeUndefined();
+    expect(preview.issues).toEqual([]);
+  });
+
+  it("flags a debt diagnostic net income label without an amount as incomplete", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheet([
+      [null, null, null, null],
+      [null, null, "INGRESO NETO", null],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, "CUOTA TC", "1400000"],
+    ]);
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toEqual({
+      netIncome: null,
+      paymentCandidates: [{ rowNumber: 5, label: "CUOTA TC", amountMinor: "1400000", currencyCode: "COP" }],
+    });
+    expect(preview.issues).toContainEqual({ code: "INCOMPLETE_ROW", rowNumber: 2, type: "debt-net-income" });
+  });
+
+  it("flags formula-backed debt diagnostic label cells even without cached text", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheet([
+      [null, null, null, null],
+      [null, null, { formula: "\"INGRESO NETO\"" }, "5600000"],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, { formula: "\"CUOTA TC\"" }, "1400000"],
+    ]);
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toBeUndefined();
+    expect(preview.issues).toEqual(expect.arrayContaining([
+      { code: "UNSUPPORTED_FORMULA", rowNumber: 2, type: "debt-net-income" },
+      { code: "UNSUPPORTED_FORMULA", rowNumber: 5, type: "debt-payment-candidate" },
+    ]));
+  });
+
+  it("flags formula-backed debt diagnostic amount cells even without labels", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheet([
+      [null, null, null, null],
+      [null, null, null, { formula: "5600000", cached: "5600000" }],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, { formula: "1400000", cached: "1400000" }],
+    ]);
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toBeUndefined();
+    expect(preview.issues).toEqual(expect.arrayContaining([
+      { code: "UNSUPPORTED_FORMULA", rowNumber: 2, type: "debt-net-income" },
+      { code: "UNSUPPORTED_FORMULA", rowNumber: 5, type: "debt-payment-candidate" },
+    ]));
+  });
+
+  it("flags populated debt diagnostic amount cells without labels as incomplete", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheet([
+      [null, null, null, null],
+      [null, null, null, "5600000"],
+      [null, null, null, null],
+      [null, null, null, null],
+      [null, null, null, "1400000"],
+    ]);
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toBeUndefined();
+    expect(preview.issues).toEqual(expect.arrayContaining([
+      { code: "INCOMPLETE_ROW", rowNumber: 2, type: "debt-net-income" },
+      { code: "INCOMPLETE_ROW", rowNumber: 5, type: "debt-payment-candidate" },
+    ]));
+  });
+
+  it("does not let duplicate debt diagnostic cells overwrite formula-backed labels", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheetXml(
+      `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="5"><c r="C5" t="str"><f>&quot;CUOTA TC&quot;</f><v>CUOTA TC</v></c><c r="C5" t="inlineStr"><is><t>CUOTA TC</t></is></c><c r="D5"><v>1400000</v></c></row></sheetData></worksheet>`,
+    );
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toBeUndefined();
+    expect(preview.issues).toContainEqual({ code: "UNSUPPORTED_FORMULA", rowNumber: 5, type: "debt-payment-candidate" });
+  });
+
+  it("does not let duplicate debt diagnostic rows overwrite formula-backed canonical cells", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheetXml(
+      `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="5"><c r="C5" t="str"><f>&quot;CUOTA TC&quot;</f><v>CUOTA TC</v></c><c r="D5"><f>1400000</f><v>1400000</v></c></row><row r="5"><c r="C5" t="inlineStr"><is><t>CUOTA TC</t></is></c><c r="D5"><v>1400000</v></c></row></sheetData></worksheet>`,
+    );
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toBeUndefined();
+    expect(preview.issues).toContainEqual({ code: "UNSUPPORTED_FORMULA", rowNumber: 5, type: "debt-payment-candidate" });
+  });
+
+  it("rejects debt diagnostic cells whose A1 row disagrees with the enclosing row", async () => {
+    const workbook = await buildWorkbookWithDebtDiagnosticSheetXml(
+      `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="5"><c r="C10" t="inlineStr"><is><t>CUOTA TC</t></is></c><c r="D10"><v>1400000</v></c></row></sheetData></worksheet>`,
+    );
+
+    const preview = await parseWorkbookImportPreview({ workbook, currencyCode: "COP" });
+
+    expect(preview.debtDiagnostic).toBeUndefined();
+    expect(preview.issues).toContainEqual({ code: "MALFORMED_WORKBOOK", sheetName: "DIAGNOSTICO DE DEUDA" });
   });
 });

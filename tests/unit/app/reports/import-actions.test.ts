@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OwnershipContext } from "@/modules/auth/application/ownership-context";
 import type {
-  WorkbookImportIssue,
-  WorkbookImportPreviewRow,
+  WorkbookImportPreview,
 } from "@/modules/budget/application/workbook-import-preview";
 import {
   AuthenticationRequiredError,
@@ -44,10 +43,7 @@ const mocks = vi.hoisted(() => {
     period,
     repository,
     requireCurrentOwnershipContext: vi.fn(async () => owner),
-    parseWorkbookImportPreview: vi.fn(async (): Promise<{
-      rows: readonly WorkbookImportPreviewRow[];
-      issues: readonly WorkbookImportIssue[];
-    }> => ({
+    parseWorkbookImportPreview: vi.fn(async (): Promise<WorkbookImportPreview> => ({
       rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
       issues: [],
     })),
@@ -105,6 +101,15 @@ describe("workbook import preview action", () => {
   });
 
   it("returns an in-memory preview for an authenticated owner period without persistence", async () => {
+    mocks.parseWorkbookImportPreview.mockResolvedValueOnce({
+      rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
+      debtDiagnostic: {
+        netIncome: { rowNumber: 2, label: "INGRESO NETO", amountMinor: "5600000", currencyCode: "COP" },
+        paymentCandidates: [{ rowNumber: 6, label: "CUOTA TC", amountMinor: "1400000", currencyCode: "COP" }],
+      },
+      issues: [],
+    });
+
     const state = await previewWorkbookImportAction(initialWorkbookImportPreviewState, previewForm());
 
     expect(state).toEqual({
@@ -113,6 +118,10 @@ describe("workbook import preview action", () => {
       fieldErrors: {},
       preview: {
         rows: [{ type: "planned-income", rowNumber: 2, description: "Salary", amountMinor: "500000", currencyCode: "COP" }],
+        debtDiagnostic: {
+          netIncome: { rowNumber: 2, label: "INGRESO NETO", amountMinor: "5600000", currencyCode: "COP" },
+          paymentCandidates: [{ rowNumber: 6, label: "CUOTA TC", amountMinor: "1400000", currencyCode: "COP" }],
+        },
         issues: [],
       },
     });

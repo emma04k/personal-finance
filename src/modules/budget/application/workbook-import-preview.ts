@@ -8,6 +8,20 @@ export type WorkbookImportPreviewRowType =
   | "planned-expense"
   | "actual-expense";
 
+export type WorkbookImportDebtDiagnosticIssueType = "debt-net-income" | "debt-payment-candidate";
+
+export type WorkbookImportDebtDiagnosticAmount = Readonly<{
+  rowNumber: number;
+  label: string;
+  amountMinor: string;
+  currencyCode: string;
+}>;
+
+export type WorkbookImportDebtDiagnosticPreview = Readonly<{
+  netIncome: WorkbookImportDebtDiagnosticAmount | null;
+  paymentCandidates: readonly WorkbookImportDebtDiagnosticAmount[];
+}>;
+
 export type WorkbookImportPreviewRow = Readonly<{
   type: WorkbookImportPreviewRowType;
   rowNumber: number;
@@ -28,13 +42,14 @@ export type WorkbookImportIssue = Readonly<{
     | "UNSUPPORTED_FORMULA"
     | "UNSUPPORTED_WORKBOOK_FEATURE";
   rowNumber?: number;
-  type?: WorkbookImportPreviewRowType;
+  type?: WorkbookImportPreviewRowType | WorkbookImportDebtDiagnosticIssueType;
   sheetName?: string;
   currencyCode?: string;
 }>;
 
 export type WorkbookImportPreview = Readonly<{
   rows: readonly WorkbookImportPreviewRow[];
+  debtDiagnostic?: WorkbookImportDebtDiagnosticPreview;
   issues: readonly WorkbookImportIssue[];
 }>;
 
@@ -56,6 +71,7 @@ type PreviewColumnMapping = Readonly<{
 }>;
 
 const supportedSheetName = "Formato Presupuesto";
+const supportedDebtDiagnosticSheetName = "DIAGNOSTICO DE DEUDA";
 const canonicalMinorUnits = /^(0|[1-9][0-9]*)$/;
 const xmlRelationshipNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const maxWorkbookXmlBytes = 256_000;
@@ -115,7 +131,125 @@ export async function parseWorkbookImportPreview({
     return { rows: [], issues: [...featureIssues, { code: "UNSUPPORTED_FORMULA", rowNumber: header.row.rowNumber }] };
   }
 
-  return buildPreview(rows, header, currencyCode, featureIssues);
+  const preview = buildPreview(rows, header, currencyCode, featureIssues);
+  return buildDebtDiagnosticPreview(zip, sharedStrings.strings, currencyCode, preview);
+}
+
+async function buildDebtDiagnosticPreview(
+  zip: JSZip,
+  sharedStrings: readonly string[],
+  currencyCode: string,
+  preview: WorkbookImportPreview,
+): Promise<WorkbookImportPreview> {
+  const sheetPathResult = await findSheetPath(zip, supportedDebtDiagnosticSheetName);
+  if (!sheetPathResult.ok) return { ...preview, issues: [...preview.issues, { code: "MALFORMED_WORKBOOK", sheetName: supportedDebtDiagnosticSheetName }] };
+  if (!sheetPathResult.path) return preview;
+
+  const sheetXml = await readZipText(zip, sheetPathResult.path, maxWorksheetXmlBytes);
+  if (!sheetXml.ok || sheetXml.text === null) {
+    return { ...preview, issues: [...preview.issues, { code: "MALFORMED_WORKBOOK", sheetName: supportedDebtDiagnosticSheetName }] };
+  }
+
+  const rows = parseSheetRows(sheetXml.text, sharedStrings);
+  if (rows === null) {
+    return { ...preview, issues: [...preview.issues, { code: "MALFORMED_WORKBOOK", sheetName: supportedDebtDiagnosticSheetName }] };
+  }
+
+  return parseDebtDiagnosticRows(rows, currencyCode, preview);
+}
+
+function parseDebtDiagnosticRows(
+  rows: readonly SheetRow[],
+  currencyCode: string,
+  preview: WorkbookImportPreview,
+): WorkbookImportPreview {
+  let netIncome: WorkbookImportDebtDiagnosticAmount | null = null;
+  const paymentCandidates: WorkbookImportDebtDiagnosticAmount[] = [];
+  const issues: WorkbookImportIssue[] = [...preview.issues];
+  const seenLabels = new Set<string>();
+  const rowsByNumber = new Map<number, SheetRow[]>();
+  for (const row of rows) rowsByNumber.set(row.rowNumber, [...(rowsByNumber.get(row.rowNumber) ?? []), row]);
+
+  const canonicalSlots: ReadonlyArray<Readonly<{ rowNumber: number; type: WorkbookImportDebtDiagnosticIssueType }>> = [
+    { rowNumber: 2, type: "debt-net-income" },
+    { rowNumber: 5, type: "debt-payment-candidate" },
+    { rowNumber: 6, type: "debt-payment-candidate" },
+    { rowNumber: 7, type: "debt-payment-candidate" },
+    { rowNumber: 8, type: "debt-payment-candidate" },
+    { rowNumber: 9, type: "debt-payment-candidate" },
+  ];
+
+  for (const slot of canonicalSlots) {
+    const matchingRows = rowsByNumber.get(slot.rowNumber) ?? [];
+    if (matchingRows.length > 1) {
+      const hasCanonicalFormula = matchingRows.some((candidate) => candidate.cells.get(3)?.formula === true || candidate.cells.get(4)?.formula === true);
+      issues.push({
+        code: hasCanonicalFormula ? "UNSUPPORTED_FORMULA" : "DUPLICATE_ROW",
+        rowNumber: slot.rowNumber,
+        type: slot.type,
+      });
+      continue;
+    }
+
+    const row = matchingRows[0];
+    const labelCell = row?.cells.get(3);
+    const amountCell = row?.cells.get(4);
+    const amountRaw = amountCell?.value ?? "";
+    const hasLabel = (labelCell?.value.trim().length ?? 0) > 0 || labelCell?.formula === true;
+    const hasAmount = amountRaw.length > 0 || amountCell?.formula === true;
+
+    if (!hasLabel && !hasAmount) continue;
+
+    if (labelCell?.formula) {
+      issues.push({ code: "UNSUPPORTED_FORMULA", rowNumber: slot.rowNumber, type: slot.type });
+      continue;
+    }
+    if (amountCell?.formula) {
+      issues.push({ code: "UNSUPPORTED_FORMULA", rowNumber: slot.rowNumber, type: slot.type });
+      continue;
+    }
+    if (!labelCell || labelCell.value.trim().length === 0) {
+      issues.push({ code: "INCOMPLETE_ROW", rowNumber: slot.rowNumber, type: slot.type });
+      continue;
+    }
+
+    const kind = debtDiagnosticLabelKind(normalizeHeader(labelCell.value));
+    if (!kind || kind.type !== slot.type) continue;
+
+    if (!hasAmount) {
+      if (slot.type === "debt-net-income") {
+        issues.push({ code: "INCOMPLETE_ROW", rowNumber: slot.rowNumber, type: slot.type });
+      }
+      continue;
+    }
+
+    const amountMinor = parseCanonicalMinorUnits(amountRaw);
+    if (amountMinor === null) {
+      issues.push({ code: "INVALID_MONEY", rowNumber: slot.rowNumber, type: slot.type });
+      continue;
+    }
+
+    if (seenLabels.has(kind.key)) {
+      issues.push({ code: "DUPLICATE_ROW", rowNumber: slot.rowNumber, type: slot.type });
+      continue;
+    }
+    seenLabels.add(kind.key);
+
+    const value = { rowNumber: slot.rowNumber, label: labelCell.value.trim(), amountMinor, currencyCode };
+    if (slot.type === "debt-net-income") netIncome = value;
+    else paymentCandidates.push(value);
+  }
+
+  if (!netIncome && paymentCandidates.length === 0) return { ...preview, issues };
+  return { ...preview, debtDiagnostic: { netIncome, paymentCandidates }, issues };
+}
+
+function debtDiagnosticLabelKind(label: string): Readonly<{ type: WorkbookImportDebtDiagnosticIssueType; key: string }> | null {
+  if (label === "ingreso neto") return { type: "debt-net-income", key: label };
+  if (["cuota libranza", "cuota tc", "cuota vehiculo", "hipotecario", "otros financieros"].includes(label)) {
+    return { type: "debt-payment-candidate", key: label };
+  }
+  return null;
 }
 
 function unsupportedFeatureIssues(zip: JSZip): WorkbookImportIssue[] {
@@ -228,9 +362,15 @@ function parseSheetRows(xml: string, sharedStrings: readonly string[]): SheetRow
       cellCount += 1;
       if (cellCount > maxWorksheetCells) return null;
       const attributes = parseAttributes(cellMatch[1]);
-      const column = columnIndexFromReference(attributes.r);
-      if (column === null) continue;
-      cells.set(column, parseCellValue(attributes, cellMatch[2], sharedStrings));
+      const cellReference = parseCellReference(attributes.r);
+      if (cellReference === null) continue;
+      if (cellReference.rowNumber !== rowNumber) return null;
+      const cellValue = parseCellValue(attributes, cellMatch[2], sharedStrings);
+      const existingCell = cells.get(cellReference.column);
+      cells.set(cellReference.column, {
+        value: cellValue.value,
+        formula: cellValue.formula || existingCell?.formula === true,
+      });
     }
 
     rows.push({ rowNumber, cells });
@@ -392,15 +532,17 @@ function parsePositiveInteger(value: string | undefined) {
   return Number.parseInt(value, 10);
 }
 
-function columnIndexFromReference(reference: string | undefined) {
+function parseCellReference(reference: string | undefined) {
   if (!reference) return null;
-  const match = /^([A-Z]+)[0-9]+$/i.exec(reference);
+  const match = /^([A-Z]+)([0-9]+)$/i.exec(reference);
   if (!match) return null;
-  let index = 0;
+  let column = 0;
   for (const character of match[1].toUpperCase()) {
-    index = index * 26 + character.charCodeAt(0) - 64;
+    column = column * 26 + character.charCodeAt(0) - 64;
   }
-  return index;
+  const rowNumber = parsePositiveInteger(match[2]);
+  if (rowNumber === null) return null;
+  return { column, rowNumber };
 }
 
 function normalizeHeader(value: string) {
