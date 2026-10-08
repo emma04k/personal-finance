@@ -33,14 +33,20 @@ Run local verification in Docker before relying on host checks.
 
 ```bash
 cp .env.example .env
-docker compose config
+bash scripts/docker-release-validate.sh
+```
+
+The helper keeps `docker compose up` non-blocking, uses quiet config validation so rendered secrets are not printed, and runs cleanup if a validation step fails after container startup begins. For transparency, the helper runs this expanded sequence:
+
+```bash
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
+docker compose exec app npm run db:validate
+docker compose exec app npm run db:generate
 docker compose exec app npm run test
 docker compose exec app npm run lint
 docker compose exec app npm run typecheck
-docker compose exec app npm run db:validate
-docker compose exec app npm run db:generate
 docker compose exec app npm run build
 curl --fail http://127.0.0.1:3000/
 docker compose down
@@ -51,7 +57,7 @@ Expected result:
 
 - Compose config renders without exposing real secrets.
 - App and database containers become healthy enough for commands to run inside the app service.
-- Tests, lint, typecheck, Prisma validation/generation, and build pass inside the container.
+- Prisma validation/generation, tests, lint, typecheck, and build pass inside the container.
 - The local HTTP smoke check returns success.
 - Containers are stopped after verification unless an operator intentionally keeps a local session open.
 

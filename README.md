@@ -12,14 +12,20 @@ A Docker-first, mobile-first Next.js MVP for authenticated monthly budgeting, tr
 ```bash
 cp .env.example .env
 # Replace local placeholder values before running the app.
-docker compose config
+bash scripts/docker-release-validate.sh
+```
+
+The release validation helper keeps the Docker startup non-blocking, avoids printing rendered Compose secrets, and cleans up containers when a validation step fails after startup begins. For transparency, it runs this expanded sequence:
+
+```bash
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
+docker compose exec app npm run db:validate
+docker compose exec app npm run db:generate
 docker compose exec app npm run test
 docker compose exec app npm run lint
 docker compose exec app npm run typecheck
-docker compose exec app npm run db:validate
-docker compose exec app npm run db:generate
 docker compose exec app npm run build
 curl --fail http://127.0.0.1:3000/
 docker compose down
