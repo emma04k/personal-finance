@@ -1,6 +1,6 @@
 # Presupuesto EDOG
 
-A Docker-first, mobile-first Next.js foundation for replacing the monthly workflow in `Presupuesto-EDOG.xlsx`. Phase 0 provides only the responsive application shell and development tooling; it does not create or simulate financial records.
+A Docker-first, mobile-first Next.js MVP for authenticated monthly budgeting, transaction-backed actuals, debt diagnostics, workbook import support, and monthly report exports. It replaces the manual review path from `Presupuesto-EDOG.xlsx` with owner-scoped app workflows and release-hardening documentation.
 
 ## Requirements
 
@@ -11,7 +11,7 @@ A Docker-first, mobile-first Next.js foundation for replacing the monthly workfl
 
 ```bash
 cp .env.example .env
-# Replace the example local password in .env.
+# Replace local placeholder values before running the app.
 docker compose config
 docker compose up -d --build
 docker compose ps
@@ -50,8 +50,37 @@ npm run test:e2e
 
 The pinned Playwright project uses WebKit with the exact `iPhone 13 Pro Max` device descriptor available in `@playwright/test`.
 
+## Supported MVP workflows
+
+### Authenticated budgeting and periods
+
+Budgeting is scoped to an authenticated owner session. Users can create monthly periods, categories, and planned budget rows; server actions derive ownership from the session instead of accepting client-supplied owner identifiers.
+
+### Transactions drive actual totals
+
+Transactions are the source of actual totals for each period. Monthly summaries compare planned rows with confirmed dated transactions, then surface available balance, income, outflows, savings allocations, debt payments, and variance signals without duplicating actual totals in separate manual fields.
+
+### Debt accounts, payments, links, and diagnostic
+
+Debt workflows support active debt accounts, account edits, archive actions, debt payment recording, optional linked transaction review, and a read-only debt diagnostic. The diagnostic uses monthly income and required debt payments as an educational signal, not financial advice.
+
+### Monthly CSV, XLSX, and PDF exports
+
+The reports area exports owner-scoped monthly report data as CSV, XLSX, and PDF files. Export routes load the selected period, planned rows, and transactions from the authenticated owner context and send no-store report responses.
+
+### Workbook preview and apply
+
+The workbook import flow previews `.xlsx` files before writing data. Applying an import confirms planned rows for the selected period; preview remains side-effect free and apply re-parses the workbook server-side before persisting changes.
+
+### Workbook debt diagnostic defaults
+
+Workbook debt diagnostic candidates can be mapped to existing active debt accounts. Applying those selections updates default required payment values on the selected existing debt accounts; it does not create synthetic debt payments or transactions.
+
 ## Product contract
 
-See [`docs/phase-0-decisions.md`](docs/phase-0-decisions.md) for the glossary, safe initial defaults, classification rules, and responsive hierarchy.
+See [`docs/phase-0-decisions.md`](docs/phase-0-decisions.md) for the original glossary, safe initial defaults, classification rules, and responsive hierarchy that still constrain the MVP.
 
-AI advice, SDKs, routes, tables, tests, and placeholder UI are future scope and are intentionally absent from this phase.
+## Release hardening docs
+
+- [`docs/mvp-production-readiness-runbook.md`](docs/mvp-production-readiness-runbook.md) defines the local, CI, staging, production, migration, backup, restore, rollback, security header, retention, deletion, and deferred-scope checks for release readiness.
+- [`docs/mvp-acceptance-checklist.md`](docs/mvp-acceptance-checklist.md) maps MVP acceptance criteria to evidence and manual gates, including iPhone real-device review, E2E, accessibility, responsive validation, Docker-first validation, import/export checks, and staging/production sign-off.
