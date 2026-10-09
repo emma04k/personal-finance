@@ -28,6 +28,8 @@ This checklist maps the MVP release plan to evidence and manual gates. Use it as
 
 Automated mobile coverage is necessary but not enough for MVP acceptance. This section records the real device gate separately from viewport simulation.
 
+Use `docs/manual-acceptance-gates.md#real-iphone-safari-review`, `docs/manual-acceptance-gates.md#playwright-iphone-viewport-evidence`, and `docs/manual-acceptance-gates.md#responsive-and-accessibility-review` for reviewer-operated mobile gate steps.
+
 - [ ] Run the Playwright mobile E2E suite with the configured iPhone 13 Pro Max projects when browser dependencies are available.
 - [ ] Test portrait and landscape responsive behavior.
 - [ ] Manually verify at least one real iPhone Safari device before production approval.
@@ -44,6 +46,8 @@ Automated mobile coverage is necessary but not enough for MVP acceptance. This s
 | Accessibility semantics | Source contract tests and manual keyboard/screen-reader-oriented review | Forms have labels, inline feedback uses accessible status/alert semantics, and unavailable states are clear. |
 | Responsive layout | Playwright iPhone projects plus manual real-device review | No horizontal scrolling at supported mobile widths; controls remain usable. |
 | Security headers | `npm run test -- tests/config/security-headers.test.ts` or full test suite | Expected header contract remains in place. |
+
+Use `docs/manual-acceptance-gates.md#responsive-and-accessibility-review` for the manual responsive and accessibility review record.
 
 Manual accessibility review should include sign-in required states, budget forms, transaction forms, debt account/payment forms, report export links, and workbook import preview/apply controls.
 
@@ -69,6 +73,8 @@ If Docker is unavailable, record the exact blocker and treat host commands as pr
 
 Use synthetic data only.
 
+Use `docs/manual-acceptance-gates.md#import-and-export-file-review`, `docs/manual-acceptance-gates.md#workbook-preview-and-apply-review`, and `docs/manual-acceptance-gates.md#debt-default-apply-review` for reviewer-operated file and workbook gates.
+
 ### Export checks
 
 - [ ] Create or select a synthetic monthly period with planned rows and transactions.
@@ -90,6 +96,8 @@ Use synthetic data only.
 - [ ] Confirm no synthetic debt payment or transaction was created by debt default apply.
 
 ## Manual staging and production gates
+
+Use `docs/manual-acceptance-gates.md#owner-scoped-synthetic-smoke-checks` for staging-only reviewer smoke gates. Production deployment remains separately approved and out of scope for this manual guide.
 
 ### Staging
 
