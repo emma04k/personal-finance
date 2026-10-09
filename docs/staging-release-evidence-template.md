@@ -67,6 +67,8 @@ This record maps to `docs/mvp-production-readiness-runbook.md` `## Staging check
 
 ## Synthetic smoke results
 
+Use `docs/manual-acceptance-gates.md#owner-scoped-synthetic-smoke-checks` for reviewer-operated manual smoke steps and safe evidence rules.
+
 | Runbook staging item | Evidence link or command | Result | Approver | Date |
 | --- | --- | --- | --- | --- |
 | Run smoke sign-in with a synthetic account | `<EVIDENCE_LINK>` | `<pass/blocker>` | `<APPROVER_NAME>` | `<DATE>` |
@@ -82,6 +84,8 @@ This record maps to `docs/mvp-production-readiness-runbook.md` `## Staging check
 
 ## Import/export evidence
 
+Use `docs/manual-acceptance-gates.md#import-and-export-file-review`, `docs/manual-acceptance-gates.md#workbook-preview-and-apply-review`, and `docs/manual-acceptance-gates.md#debt-default-apply-review` for reviewer-operated import/export gates.
+
 | Runbook staging item | Evidence link or command | Result | Approver | Date |
 | --- | --- | --- | --- | --- |
 | Export synthetic monthly reports as CSV | `<EVIDENCE_LINK>` | `<pass/blocker>` | `<APPROVER_NAME>` | `<DATE>` |
@@ -93,6 +97,8 @@ This record maps to `docs/mvp-production-readiness-runbook.md` `## Staging check
 | Confirm no synthetic debt payment or transaction was created by debt default apply | `<EVIDENCE_LINK>` | `<pass/blocker>` | `<APPROVER_NAME>` | `<DATE>` |
 
 ## Mobile and iPhone evidence
+
+Use `docs/manual-acceptance-gates.md#real-iphone-safari-review`, `docs/manual-acceptance-gates.md#playwright-iphone-viewport-evidence`, and `docs/manual-acceptance-gates.md#responsive-and-accessibility-review` for mobile manual gates.
 
 | Manual evidence row | Evidence link or command | Result | Approver | Date |
 | --- | --- | --- | --- | --- |
