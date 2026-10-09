@@ -90,3 +90,4 @@ See [`docs/phase-0-decisions.md`](docs/phase-0-decisions.md) for the original gl
 
 - [`docs/mvp-production-readiness-runbook.md`](docs/mvp-production-readiness-runbook.md) defines the local, CI, staging, production, migration, backup, restore, rollback, security header, retention, deletion, and deferred-scope checks for release readiness.
 - [`docs/mvp-acceptance-checklist.md`](docs/mvp-acceptance-checklist.md) maps MVP acceptance criteria to evidence and manual gates, including iPhone real-device review, E2E, accessibility, responsive validation, Docker-first validation, import/export checks, and staging/production sign-off.
+- [`docs/production-release-signoff-template.md`](docs/production-release-signoff-template.md) records the final MVP production release go/no-go decision, required evidence placeholders, post-release smoke plan, and rollback triggers without authorizing deployment.
