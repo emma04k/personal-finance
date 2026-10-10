@@ -106,6 +106,7 @@ Use only synthetic data in staging.
 ## Production checklist
 
 Do not deploy until staging evidence and rollback readiness are complete.
+Use `docs/production-release-signoff-template.md` for the final MVP release decision record; the template does not authorize deployment and does not replace explicit release approval.
 
 - [ ] Release owner, reviewer, and rollback owner are named.
 - [ ] Target commit SHA matches the reviewed build artifact.
@@ -131,6 +132,7 @@ Do not deploy until staging evidence and rollback readiness are complete.
 ## Restore and rollback procedures
 
 Prepare rollback before release.
+Record the release owner, rollback owner, reviewed build artifact, last known good artifact, backup/restore confirmation, and rollback triggers in `docs/production-release-signoff-template.md` before final production sign-off.
 
 1. Identify the last known good build artifact and commit SHA.
 2. Confirm the pre-release database backup exists and is restorable.

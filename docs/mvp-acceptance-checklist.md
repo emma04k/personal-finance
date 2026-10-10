@@ -98,6 +98,7 @@ Use `docs/manual-acceptance-gates.md#import-and-export-file-review`, `docs/manua
 ## Manual staging and production gates
 
 Use `docs/manual-acceptance-gates.md#owner-scoped-synthetic-smoke-checks` for staging-only reviewer smoke gates. Production deployment remains separately approved and out of scope for this manual guide.
+Use `docs/production-release-signoff-template.md` for the final production go/no-go record, post-release smoke plan, rollback triggers, and approver/date placeholders.
 
 ### Staging
 
@@ -122,6 +123,7 @@ Use `docs/manual-acceptance-gates.md#owner-scoped-synthetic-smoke-checks` for st
 ## Sign-off record
 
 Copy this table into the release ticket and fill it with synthetic-data-safe evidence.
+For final production release decisions, copy `docs/production-release-signoff-template.md` instead of expanding this summary table with deployment details.
 
 | Gate | Environment | Evidence link or command | Result | Approver | Date |
 | --- | --- | --- | --- | --- | --- |
