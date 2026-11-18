@@ -91,3 +91,19 @@ See [`docs/phase-0-decisions.md`](docs/phase-0-decisions.md) for the original gl
 - [`docs/mvp-production-readiness-runbook.md`](docs/mvp-production-readiness-runbook.md) defines the local, CI, staging, production, migration, backup, restore, rollback, security header, retention, deletion, and deferred-scope checks for release readiness.
 - [`docs/mvp-acceptance-checklist.md`](docs/mvp-acceptance-checklist.md) maps MVP acceptance criteria to evidence and manual gates, including iPhone real-device review, E2E, accessibility, responsive validation, Docker-first validation, import/export checks, and staging/production sign-off.
 - [`docs/production-release-signoff-template.md`](docs/production-release-signoff-template.md) records the final MVP production release go/no-go decision, required evidence placeholders, post-release smoke plan, and rollback triggers without authorizing deployment.
+
+## Initial owner bootstrap
+
+The application has no public registration flow. An operator must provision the first active owner exactly once after obtaining the Auth0 broker subject (`sub`) for the intended identity. The command reads `DATABASE_URL` from the process environment only; it does not load a connection string from command-line arguments or repository files.
+
+```bash
+DATABASE_URL=<DATABASE_URL> npm run bootstrap:first-owner -- --subject <AUTH0_BROKER_SUBJECT> --email <OWNER_EMAIL> --confirm
+```
+
+An optional display name may be supplied without changing the fixed provider:
+
+```bash
+DATABASE_URL=<DATABASE_URL> npm run bootstrap:first-owner -- --subject <AUTH0_BROKER_SUBJECT> --email <OWNER_EMAIL> --display-name <OWNER_DISPLAY_NAME> --confirm
+```
+
+Use only non-secret placeholders in commands, tickets, and logs. Before running, confirm that the target database is the intended environment and that the Auth0 broker subject is from the configured OIDC broker. The command refuses missing or malformed input, missing `--confirm`, an existing active owner, an existing email, or an existing `oidc` provider association. It creates the `ACTIVE` `OWNER` user and its `oidc` association in one serializable Prisma transaction and reports only provider, role, and status. It does not create a public registration path or modify existing identities.
